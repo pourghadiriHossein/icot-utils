@@ -7,6 +7,9 @@ using DotNetEnv;
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
+using System.Text.Json.Nodes;
+using Microsoft.OpenApi;
 
 namespace HPK.Core.Extensions;
 
@@ -249,12 +252,118 @@ public static class PlatformApiExtensions
                     };
                 }
 
+                // Transform any remaining multilingual dictionary schemas in components or paths to show en/fa
+                var visited = new HashSet<Microsoft.OpenApi.IOpenApiSchema>();
+                if (document.Components?.Schemas != null)
+                {
+                    foreach (var s in document.Components.Schemas.Values)
+                    {
+                        ConfigureMultilingualSchema(s, visited);
+                    }
+                }
+                if (document.Paths != null)
+                {
+                    foreach (var pathItem in document.Paths.Values)
+                    {
+                        if (pathItem.Operations != null)
+                        {
+                            foreach (var op in pathItem.Operations.Values)
+                            {
+                                if (op.RequestBody?.Content != null)
+                                {
+                                    foreach (var media in op.RequestBody.Content.Values)
+                                    {
+                                        ConfigureMultilingualSchema(media.Schema, visited);
+                                    }
+                                }
+                                if (op.Responses != null)
+                                {
+                                    foreach (var resp in op.Responses.Values)
+                                    {
+                                        if (resp.Content != null)
+                                        {
+                                            foreach (var media in resp.Content.Values)
+                                            {
+                                                ConfigureMultilingualSchema(media.Schema, visited);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 return Task.CompletedTask;
             });
 
-            
+            // Transform Dictionary<string, string> schemas to show en/fa properties and example
+            options.AddSchemaTransformer((schema, context, cancellationToken) =>
+            {
+                var type = context.JsonTypeInfo.Type;
+                if (type == typeof(Dictionary<string, string>) ||
+                    type == typeof(IDictionary<string, string>) ||
+                    type == typeof(IReadOnlyDictionary<string, string>))
+                {
+                    schema.Type = Microsoft.OpenApi.JsonSchemaType.Object;
+                    schema.Properties ??= new Dictionary<string, Microsoft.OpenApi.IOpenApiSchema>();
+                    if (!schema.Properties.ContainsKey("en"))
+                    {
+                        schema.Properties["en"] = new Microsoft.OpenApi.OpenApiSchema { Type = Microsoft.OpenApi.JsonSchemaType.String };
+                    }
+                    if (!schema.Properties.ContainsKey("fa"))
+                    {
+                        schema.Properties["fa"] = new Microsoft.OpenApi.OpenApiSchema { Type = Microsoft.OpenApi.JsonSchemaType.String };
+                    }
+                    schema.Example ??= new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["en"] = "",
+                        ["fa"] = ""
+                    };
+                }
+                return Task.CompletedTask;
+            });
         });
         return services;
+    }
+
+    private static void ConfigureMultilingualSchema(Microsoft.OpenApi.IOpenApiSchema? schemaNode, HashSet<Microsoft.OpenApi.IOpenApiSchema> visited)
+    {
+        if (schemaNode is not Microsoft.OpenApi.OpenApiSchema schema || !visited.Add(schema))
+        {
+            return;
+        }
+
+        if (schema.AdditionalProperties is Microsoft.OpenApi.OpenApiSchema addProp && addProp.Type == Microsoft.OpenApi.JsonSchemaType.String)
+        {
+            schema.Type = Microsoft.OpenApi.JsonSchemaType.Object;
+            schema.Properties ??= new Dictionary<string, Microsoft.OpenApi.IOpenApiSchema>();
+            if (!schema.Properties.ContainsKey("en"))
+            {
+                schema.Properties["en"] = new Microsoft.OpenApi.OpenApiSchema { Type = Microsoft.OpenApi.JsonSchemaType.String };
+            }
+            if (!schema.Properties.ContainsKey("fa"))
+            {
+                schema.Properties["fa"] = new Microsoft.OpenApi.OpenApiSchema { Type = Microsoft.OpenApi.JsonSchemaType.String };
+            }
+            schema.Example ??= new System.Text.Json.Nodes.JsonObject
+            {
+                ["en"] = "",
+                ["fa"] = ""
+            };
+        }
+
+        if (schema.Properties != null)
+        {
+            foreach (var prop in schema.Properties.Values)
+            {
+                ConfigureMultilingualSchema(prop, visited);
+            }
+        }
+
+        if (schema.Items != null)
+        {
+            ConfigureMultilingualSchema(schema.Items, visited);
+        }
     }
 }
