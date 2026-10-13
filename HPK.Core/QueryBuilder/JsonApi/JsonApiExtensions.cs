@@ -206,6 +206,20 @@ public static class JsonApiExtensions
         else if (value.StartsWith("==")) { op = "=="; cleanValue = value.Substring(2); }
         else if (value.StartsWith("=")) { op = "=="; cleanValue = value.Substring(1); }
 
+        cleanValue = cleanValue.Trim();
+
+        // Handle null / !null filtering for nullable and reference properties
+        if (cleanValue.Equals("null", System.StringComparison.OrdinalIgnoreCase))
+        {
+            bool isNullable = !propertyType.IsValueType || System.Nullable.GetUnderlyingType(propertyType) != null;
+            if (!isNullable)
+            {
+                return (op == "!=" || value.StartsWith("!")) ? null : "1 == 0";
+            }
+
+            return (op == "!=" || value.StartsWith("!")) ? $"{field} != null" : $"{field} == null";
+        }
+
         if (isString)
         {
             if (op == "==" && (value.StartsWith("==") || value.StartsWith("="))) 
