@@ -70,12 +70,12 @@ public static class PlatformDbExtensions
         dataSourceBuilder.EnableDynamicJson();
         var dataSource = dataSourceBuilder.Build();
 
-        services.AddDbContext<TContext>((sp, options) =>
+        services.AddDbContextPool<TContext>((sp, options) =>
         {
             options.UseNpgsql(dataSource);
             options.AddInterceptors(sp.GetRequiredService<HPK.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>());
             options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
-        });
+        }, poolSize: 1024);
 
         return services;
     }

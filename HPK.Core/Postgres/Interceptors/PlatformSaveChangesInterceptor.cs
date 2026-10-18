@@ -13,9 +13,9 @@ namespace HPK.Core.Postgres.Interceptors;
 public class PlatformSaveChangesInterceptor : SaveChangesInterceptor
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly IInternalValidationService _validationService;
+    private readonly IInternalValidationService? _validationService;
 
-    public PlatformSaveChangesInterceptor(IHttpContextAccessor httpContextAccessor, IInternalValidationService validationService)
+    public PlatformSaveChangesInterceptor(IHttpContextAccessor httpContextAccessor, IInternalValidationService? validationService = null)
     {
         _httpContextAccessor = httpContextAccessor;
         _validationService = validationService;
@@ -33,9 +33,6 @@ public class PlatformSaveChangesInterceptor : SaveChangesInterceptor
             .ToList();
 
         if (!entries.Any()) return result;
-
-        var workspaceIdsToValidate = new HashSet<Guid>();
-        var accountIdsToValidate = new HashSet<Guid>();
 
         var accountIdHeader = _httpContextAccessor.HttpContext?.Request.Headers["x-account"].ToString();
         var currentAccountId = string.IsNullOrWhiteSpace(accountIdHeader) ? (string?)null : accountIdHeader;
@@ -65,52 +62,6 @@ public class PlatformSaveChangesInterceptor : SaveChangesInterceptor
             {
                 updatedAtProp.CurrentValue = DateTime.UtcNow;
             }
-
-            var workspaceIdProp = entry.Properties.FirstOrDefault(p => p.Metadata.Name == "WorkspaceId");
-            if (workspaceIdProp != null && workspaceIdProp.CurrentValue is Guid wId && wId != Guid.Empty)
-            {
-                if (entry.State == EntityState.Added || workspaceIdProp.IsModified)
-                {
-                    var isAddedInCurrentTransaction = entries.Any(e => 
-                        e.State == EntityState.Added && 
-                        e.Properties.Any(p => p.Metadata.Name == "Id" && p.CurrentValue is Guid id && id == wId));
-
-                    if (!isAddedInCurrentTransaction)
-                    {
-                        workspaceIdsToValidate.Add(wId);
-                    }
-                }
-            }
-
-            var accountIdProp = entry.Properties.FirstOrDefault(p => p.Metadata.Name == "AccountId");
-            if (accountIdProp != null && accountIdProp.CurrentValue is Guid aId && aId != Guid.Empty)
-            {
-                if (entry.State == EntityState.Added || accountIdProp.IsModified)
-                {
-                    var isAddedInCurrentTransaction = entries.Any(e => 
-                        e.State == EntityState.Added && 
-                        e.Properties.Any(p => p.Metadata.Name == "Id" && p.CurrentValue is Guid id && id == aId));
-
-                    if (!isAddedInCurrentTransaction)
-                    {
-                        accountIdsToValidate.Add(aId);
-                    }
-                }
-            }
-        }
-
-        if (workspaceIdsToValidate.Any())
-        {
-            var isValid = await _validationService.ValidateWorkspacesAsync(workspaceIdsToValidate, cancellationToken);
-            if (!isValid)
-                throw new ArgumentException("One or more WorkspaceIds are invalid or do not exist.");
-        }
-
-        if (accountIdsToValidate.Any())
-        {
-            var isValid = await _validationService.ValidateAccountsAsync(accountIdsToValidate, cancellationToken);
-            if (!isValid)
-                throw new ArgumentException("One or more AccountIds are invalid or do not exist.");
         }
 
         return await base.SavingChangesAsync(eventData, result, cancellationToken);
