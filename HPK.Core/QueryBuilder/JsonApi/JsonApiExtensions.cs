@@ -60,10 +60,40 @@ public static class JsonApiExtensions
                     continue;
                 }
 
-                // Normal AND field
-                var field = ToPascalCase(rawKey);
+                // Check for dictionary / nested multilingual field: e.g. filter[title]=ایرا or filter[title.fa]=ایرا or filter[title][fa]=ایرا
+                var normalizedKey = rawKey.Replace("][", ".").Replace("[", ".").Replace("]", "");
+                string field;
+                string? subKey = null;
+
+                if (normalizedKey.Contains('.'))
+                {
+                    var dotIdx = normalizedKey.IndexOf('.');
+                    var candidateField = ToPascalCase(normalizedKey.Substring(0, dotIdx));
+                    var candidateProp = typeof(T).GetProperty(candidateField, System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                    if (candidateProp != null && typeof(System.Collections.IDictionary).IsAssignableFrom(candidateProp.PropertyType))
+                    {
+                        field = candidateField;
+                        subKey = normalizedKey.Substring(dotIdx + 1);
+                    }
+                    else
+                    {
+                        field = ToPascalCase(rawKey);
+                    }
+                }
+                else
+                {
+                    field = ToPascalCase(normalizedKey);
+                }
+
                 var propertyInfo = typeof(T).GetProperty(field, System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
                 if (propertyInfo == null) continue;
+
+                // Handle dictionary filtering (multilingual jsonb fields)
+                if (typeof(System.Collections.IDictionary).IsAssignableFrom(propertyInfo.PropertyType))
+                {
+                    query = ApplyDictionaryFilter(query, propertyInfo, rawValue, subKey);
+                    continue;
+                }
 
                 // Handle OR for the same field: ?filter[status]=active|pending (not starting with in:/nin:)
                 if (rawValue.Contains("|") && !rawValue.StartsWith("in:", System.StringComparison.OrdinalIgnoreCase) && !rawValue.StartsWith("nin:", System.StringComparison.OrdinalIgnoreCase))
@@ -237,6 +267,11 @@ public static class JsonApiExtensions
             parameters.Add(cleanValue);
             return $"{field}.Contains(@{parameters.Count - 1})";
         }
+        else if (typeof(System.Collections.IDictionary).IsAssignableFrom(propertyType))
+        {
+            parameters.Add(cleanValue);
+            return $"{field} != null && {field}.Any(Value != null && Value.Contains(@{parameters.Count - 1}))";
+        }
         else
         {
             try
@@ -250,6 +285,125 @@ public static class JsonApiExtensions
                 return null; 
             }
         }
+    }
+
+    private static IQueryable<T> ApplyDictionaryFilter<T>(IQueryable<T> query, System.Reflection.PropertyInfo propertyInfo, string value, string? subKey) where T : class
+    {
+        if (string.IsNullOrWhiteSpace(value)) return query;
+
+        var providerFullName = query.Provider.GetType().FullName ?? string.Empty;
+        bool isRelational = providerFullName.Contains("EntityFrameworkCore")
+                            && !providerFullName.Contains("InMemory");
+
+        var parameter = System.Linq.Expressions.Expression.Parameter(typeof(T), "x");
+        var propertyAccess = System.Linq.Expressions.Expression.Property(parameter, propertyInfo);
+
+        var terms = value.Split('|', System.StringSplitOptions.RemoveEmptyEntries);
+
+        if (isRelational)
+        {
+            var convertToObject = System.Linq.Expressions.Expression.Convert(propertyAccess, typeof(object));
+            var convertToString = System.Linq.Expressions.Expression.Convert(convertToObject, typeof(string));
+            var efFunctions = System.Linq.Expressions.Expression.Property(null, typeof(Microsoft.EntityFrameworkCore.EF), nameof(Microsoft.EntityFrameworkCore.EF.Functions));
+
+            var iLikeMethod = typeof(Microsoft.EntityFrameworkCore.NpgsqlDbFunctionsExtensions).GetMethod(
+                nameof(Microsoft.EntityFrameworkCore.NpgsqlDbFunctionsExtensions.ILike),
+                new[] { typeof(Microsoft.EntityFrameworkCore.DbFunctions), typeof(string), typeof(string) })
+                ?? typeof(Microsoft.EntityFrameworkCore.DbFunctionsExtensions).GetMethod(
+                nameof(Microsoft.EntityFrameworkCore.DbFunctionsExtensions.Like),
+                new[] { typeof(Microsoft.EntityFrameworkCore.DbFunctions), typeof(string), typeof(string) });
+
+            if (iLikeMethod == null) return query;
+
+            System.Linq.Expressions.Expression? combinedExpr = null;
+
+            foreach (var term in terms)
+            {
+                var cleanTerm = term.Trim();
+                bool isExact = cleanTerm.StartsWith("==") || cleanTerm.StartsWith("=");
+                bool isNotEqual = cleanTerm.StartsWith("!=") || cleanTerm.StartsWith("!");
+
+                string searchVal = isExact
+                    ? (cleanTerm.StartsWith("==") ? cleanTerm.Substring(2) : cleanTerm.Substring(1)).Trim()
+                    : (isNotEqual ? (cleanTerm.StartsWith("!=") ? cleanTerm.Substring(2) : cleanTerm.Substring(1)).Trim() : cleanTerm);
+
+                string pattern;
+                if (!string.IsNullOrEmpty(subKey))
+                {
+                    pattern = isExact ? $"%\"{subKey}\":%\"{searchVal}\"%" : $"%\"{subKey}\":%{searchVal}%";
+                }
+                else
+                {
+                    pattern = isExact ? $"%\"{searchVal}\"%" : $"%{searchVal}%";
+                }
+
+                var patternConstant = System.Linq.Expressions.Expression.Constant(pattern, typeof(string));
+                System.Linq.Expressions.Expression call = System.Linq.Expressions.Expression.Call(iLikeMethod, efFunctions, convertToString, patternConstant);
+
+                if (isNotEqual)
+                {
+                    call = System.Linq.Expressions.Expression.Not(call);
+                }
+
+                combinedExpr = combinedExpr == null ? call : System.Linq.Expressions.Expression.OrElse(combinedExpr, call);
+            }
+
+            if (combinedExpr != null)
+            {
+                var lambda = System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(combinedExpr, parameter);
+                return query.Where(lambda);
+            }
+            return query;
+        }
+
+        // In-memory fallback
+        Func<T, bool> inMemoryPredicate = x =>
+        {
+            var dict = propertyInfo.GetValue(x) as System.Collections.IDictionary;
+            if (dict == null) return false;
+
+            foreach (var term in terms)
+            {
+                var cleanTerm = term.Trim();
+                bool isExact = cleanTerm.StartsWith("==") || cleanTerm.StartsWith("=");
+                bool isNotEqual = cleanTerm.StartsWith("!=") || cleanTerm.StartsWith("!");
+
+                string searchVal = isExact
+                    ? (cleanTerm.StartsWith("==") ? cleanTerm.Substring(2) : cleanTerm.Substring(1)).Trim()
+                    : (isNotEqual ? (cleanTerm.StartsWith("!=") ? cleanTerm.Substring(2) : cleanTerm.Substring(1)).Trim() : cleanTerm);
+
+                bool match = false;
+                if (!string.IsNullOrEmpty(subKey))
+                {
+                    if (dict.Contains(subKey))
+                    {
+                        var val = dict[subKey]?.ToString();
+                        if (val != null)
+                        {
+                            match = isExact
+                                ? string.Equals(val, searchVal, System.StringComparison.OrdinalIgnoreCase)
+                                : val.Contains(searchVal, System.StringComparison.OrdinalIgnoreCase);
+                        }
+                    }
+                }
+                else
+                {
+                    foreach (System.Collections.DictionaryEntry entry in dict)
+                    {
+                        var val = entry.Value?.ToString();
+                        if (val == null) continue;
+                        if (isExact && string.Equals(val, searchVal, System.StringComparison.OrdinalIgnoreCase)) { match = true; break; }
+                        if (!isExact && val.Contains(searchVal, System.StringComparison.OrdinalIgnoreCase)) { match = true; break; }
+                    }
+                }
+
+                if (isNotEqual ? !match : match) return true;
+            }
+
+            return false;
+        };
+
+        return query.Where(x => inMemoryPredicate(x));
     }
 
     private static object ConvertValue(string value, System.Type targetType)

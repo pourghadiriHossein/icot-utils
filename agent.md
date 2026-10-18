@@ -47,6 +47,7 @@ A critical part of `HPK.Core` is the `TenantValidationMiddleware`. It universall
   - NEVER use manual parameters like `int page` or `int per_page` in controller signatures. 
   - Pagination parameters must automatically be processed as `page[number]` and `page[size]` by `JsonApiQueryOptions`.
   - Filtering natively supports `null` / `!null` (e.g. `filter[parent_id]=null`, `filter[parent_id]=!null`) for nullable value types (`Guid?`, `int?`, etc.) and reference types.
+  - Multilingual & JSONB Dictionary Filtering: `ApplyJsonApiAsync` natively supports filtering on `Dictionary<string, string>` and `IDictionary` properties (e.g. `Title`, `Description`, `Meta`, `Rules`). It translates to case-insensitive `ILIKE` on PostgreSQL `(field::text)` matching GIN trigram indexes for whole-JSON search (`filter[title]=value`), and supports language/key-specific lookups (`filter[title.fa]=value` or `filter[title][fa]=value`), exact matches (`==`), and multiple OR terms (`filter[title]=val1|val2`). In-memory evaluation is provided for unit testing.
 
 ### Mandatory Logging
 - Every MediatR Command or Query must implement `HPK.Core.Interfaces.ILoggableRequest` to auto-publish `log:add` to RabbitMQ. Specify `LogService`, `LogTable`, `LogModel`, and `LogType` (`command` or `query`).
