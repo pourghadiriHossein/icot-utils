@@ -52,3 +52,8 @@ A critical part of `HPK.Core` is the `TenantValidationMiddleware`. It universall
 
 ### Mandatory Logging
 - Every MediatR Command or Query must implement `HPK.Core.Interfaces.ILoggableRequest` to auto-publish `log:add` to RabbitMQ. Specify `LogService`, `LogTable`, `LogModel`, and `LogType` (`command` or `query`).
+
+### 🚨 Centralized Platform Error Logging (`log:error`)
+- **Event Contract (`LogErrorEvent`)**: Defined in `HPK.Core.Events.LogErrorEvent`. Uses `Event = "log:error"` with lowest priority (`Priority = 1`), dispatched directly to `ACTION_SERVICE_QUEUE` (`icot_action_queue`).
+- **HTTP Exception Interception**: `GlobalExceptionHandler` intercepts all unhandled HTTP exceptions across all microservices, formats the response, and asynchronously fire-and-forgets a `LogErrorEvent` containing the originating service name, exception message, HTTP method, path, query string, trace ID, headers (`x-account`, `x-workspace`), and stack trace.
+- **Queue Consumer Exception Interception**: `PlatformConsumeErrorObserver` is automatically registered in `AddPlatformRabbitMq`. It listens to `ConsumeFault<T>` across all MassTransit consumers and publishes a `LogErrorEvent` with the faulted consumer type, message type, and exception details, safely skipping recursion if `T` is `LogErrorEvent`.
