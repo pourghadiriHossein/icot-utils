@@ -194,7 +194,7 @@ public static class JsonApiExtensions
         return string.Join("", words);
     }
 
-    private static string BuildCondition(string field, string value, System.Type propertyType, System.Collections.Generic.List<object> parameters)
+    private static string? BuildCondition(string field, string value, System.Type propertyType, System.Collections.Generic.List<object> parameters)
     {
         bool isString = propertyType == typeof(string);
 
@@ -427,13 +427,14 @@ public static class JsonApiExtensions
         return System.Convert.ChangeType(value, underlyingType);
     }
 
-    private static System.Collections.IList ConvertList(string[] values, System.Type targetType)
+    private static System.Collections.IList? ConvertList(string[] values, System.Type targetType)
     {
         try
         {
             var underlyingType = System.Nullable.GetUnderlyingType(targetType) ?? targetType;
             var listType = typeof(System.Collections.Generic.List<>).MakeGenericType(underlyingType);
-            var list = (System.Collections.IList)System.Activator.CreateInstance(listType);
+            var list = (System.Collections.IList?)System.Activator.CreateInstance(listType);
+            if (list == null) return null;
 
             foreach (var v in values)
             {
@@ -451,7 +452,7 @@ public static class JsonApiExtensions
     /// Dynamically shapes the output data by selecting or excluding fields based on a comma-separated list.
     /// Supports -field for exclusion.
     /// </summary>
-    public static object ShapeData(object data, string selectQuery)
+    public static object? ShapeData(object? data, string selectQuery)
     {
         if (data == null || string.IsNullOrWhiteSpace(selectQuery)) return data;
 
@@ -499,11 +500,11 @@ public static class JsonApiExtensions
         // Use dictionaries for shaping to avoid Dynamic LINQ reserved keyword issues (like 'Parent')
         if (isCollection)
         {
-            var list = new System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, object>>();
-            foreach (var item in (System.Collections.IEnumerable)data)
+            var list = new System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, object?>>();
+            foreach (var item in (System.Collections.IEnumerable)data!)
             {
                 if (item == null) continue;
-                var dict = new System.Collections.Generic.Dictionary<string, object>();
+                var dict = new System.Collections.Generic.Dictionary<string, object?>();
                 foreach (var field in finalFields)
                 {
                     var prop = elementType.GetProperty(field);
@@ -516,7 +517,7 @@ public static class JsonApiExtensions
         }
         else
         {
-            var dict = new System.Collections.Generic.Dictionary<string, object>();
+            var dict = new System.Collections.Generic.Dictionary<string, object?>();
             foreach (var field in finalFields)
             {
                 var prop = elementType.GetProperty(field);
