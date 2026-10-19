@@ -15,8 +15,16 @@ namespace HPK.Core.Extensions;
 
 public static class PlatformApiExtensions
 {
+    public static string CurrentServiceName { get; internal set; } = "unknown";
+
     public static WebApplicationBuilder ConfigurePlatformHost(this WebApplicationBuilder builder, string serviceName)
     {
+        CurrentServiceName = serviceName.Replace("Service", "", StringComparison.OrdinalIgnoreCase).ToLowerInvariant().Trim('_');
+        if (CurrentServiceName.Contains("gateway") || CurrentServiceName.Contains("api"))
+        {
+            CurrentServiceName = "gateway";
+        }
+
         LoadEnvFile();
 
         var mode = Environment.GetEnvironmentVariable("MODE") ?? Env.GetString("MODE") ?? "development";
