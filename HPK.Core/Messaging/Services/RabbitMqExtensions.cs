@@ -32,6 +32,9 @@ public static class RabbitMqExtensions
                 // Use Raw JSON serialization across all platform microservices
                 cfg.UseRawJsonSerializer(RawSerializerOptions.AnyMessageType);
 
+                // Connect automatic error logging observer for failed consumers
+                cfg.ConnectConsumeObserver(new HPK.Core.Messaging.Observers.PlatformConsumeErrorObserver());
+
                 // Configure standard durability etc automatically.
                 cfg.ConfigureEndpoints(context);
             });
