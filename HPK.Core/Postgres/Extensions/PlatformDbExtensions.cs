@@ -15,7 +15,8 @@ public static class PlatformDbExtensions
     public static IServiceCollection AddPlatformDbContext<TContext>(this IServiceCollection services, string defaultDbName, string? envDbKey = null) 
         where TContext : DbContext
     {
-        services.AddScoped<HPK.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>();
+        services.AddHttpContextAccessor();
+        services.AddSingleton<HPK.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>();
         // Load .env file (assuming it is in the root directory)
         var rootDir = Directory.GetCurrentDirectory();
         while (!File.Exists(Path.Combine(rootDir, ".env")) && Directory.GetParent(rootDir) != null)

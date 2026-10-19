@@ -13,12 +13,10 @@ namespace HPK.Core.Postgres.Interceptors;
 public class PlatformSaveChangesInterceptor : SaveChangesInterceptor
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly IInternalValidationService? _validationService;
 
-    public PlatformSaveChangesInterceptor(IHttpContextAccessor httpContextAccessor, IInternalValidationService? validationService = null)
+    public PlatformSaveChangesInterceptor(IHttpContextAccessor httpContextAccessor)
     {
         _httpContextAccessor = httpContextAccessor;
-        _validationService = validationService;
     }
 
     public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
