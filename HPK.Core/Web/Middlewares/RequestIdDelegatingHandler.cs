@@ -16,22 +16,12 @@ public class RequestIdDelegatingHandler : DelegatingHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        if (context != null)
+        var context = _httpContextAccessor.HttpContext;
+        if (context != null && context.Request.Headers.TryGetValue("x-request", out var requestId))
         {
-            var reqId = context.Request.Headers["x-request-id"].ToString() is { Length: > 0 } id1
-                ? id1
-                : (context.Request.Headers["x-request"].ToString() is { Length: > 0 } id2 ? id2 : null);
-
-            if (!string.IsNullOrWhiteSpace(reqId))
+            if (!request.Headers.Contains("x-request"))
             {
-                if (!request.Headers.Contains("x-request-id"))
-                {
-                    request.Headers.TryAddWithoutValidation("x-request-id", reqId);
-                }
-                if (!request.Headers.Contains("x-request"))
-                {
-                    request.Headers.TryAddWithoutValidation("x-request", reqId);
-                }
+                request.Headers.TryAddWithoutValidation("x-request", requestId.ToString());
             }
         }
 

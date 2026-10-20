@@ -114,7 +114,7 @@ public class GlobalExceptionHandler : IExceptionHandler
                 ["path"] = httpContext.Request.Path.Value,
                 ["method"] = httpContext.Request.Method,
                 ["query"] = httpContext.Request.QueryString.Value,
-                ["request_id"] = httpContext.Request.Headers["x-request-id"].ToString() is { Length: > 0 } reqId ? reqId : (httpContext.Request.Headers["x-request"].ToString() is { Length: > 0 } req ? req : null),
+                ["request_id"] = httpContext.Request.Headers["x-request"].ToString() is { Length: > 0 } req ? req : null,
                 ["workspace_id"] = httpContext.Request.Headers["x-workspace"].ToString() is { Length: > 0 } ws ? ws : null,
                 ["account_id"] = httpContext.Request.Headers["x-account"].ToString() is { Length: > 0 } acc ? acc : null,
                 ["client_ip"] = httpContext.Request.Headers["x-forwarded-ip"].ToString() is { Length: > 0 } ip ? ip : httpContext.Connection.RemoteIpAddress?.ToString()
