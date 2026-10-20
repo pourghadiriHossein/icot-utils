@@ -67,8 +67,8 @@ public class LogAddBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, T
                 Priority = 1,
                 Data = new LogAddEventData
             {
-                RequestId = GetHeaderGuid("x-request-id"),
-                QueueId = GetHeaderGuid("x-queue-id"),
+                RequestId = GetHeaderGuid("x-request-id") ?? GetHeaderGuid("x-request"),
+                QueueId = GetHeaderGuid("x-queue-id") ?? GetHeaderGuid("x-queue"),
                 WorkspaceId = GetHeaderGuid("x-workspace"),
                 AccountId = GetHeaderGuid("x-account"),
                 TraceId = GetHeaderGuid("x-trace-id"),
