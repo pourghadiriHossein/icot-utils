@@ -18,16 +18,55 @@ public class ApiResponseFilter : IAsyncResultFilter
 
         if (context.Result is ObjectResult objectResult)
         {
+            string? selectString = null;
+            if (context.HttpContext.Request.Query.TryGetValue("select", out var selectValues))
+            {
+                selectString = selectValues.ToString();
+            }
+
             // If the controller already returned an ApiResponse (e.g., custom error logic), don't double-wrap
             if (objectResult.Value != null && objectResult.Value.GetType().IsGenericType &&
                 objectResult.Value.GetType().GetGenericTypeDefinition() == typeof(ApiResponse<>))
             {
+                if (!string.IsNullOrWhiteSpace(selectString))
+                {
+                    var valueType = objectResult.Value.GetType();
+                    var dataProp = valueType.GetProperty("Data");
+                    if (dataProp != null)
+                    {
+                        var originalData = dataProp.GetValue(objectResult.Value);
+                        if (originalData != null)
+                        {
+                            var shapedData = HPK.Core.JsonApi.JsonApiExtensions.ShapeData(originalData, selectString);
+
+                            var successProp = valueType.GetProperty("Success");
+                            var codeProp = valueType.GetProperty("Code");
+                            var messageProp = valueType.GetProperty("Message");
+                            var metaProp = valueType.GetProperty("Meta");
+                            var exceptionProp = valueType.GetProperty("Exception");
+
+                            bool success = (bool)(successProp?.GetValue(objectResult.Value) ?? true);
+                            int code = (int)(codeProp?.GetValue(objectResult.Value) ?? 200);
+                            string? message = (string?)messageProp?.GetValue(objectResult.Value);
+                            object? meta = metaProp?.GetValue(objectResult.Value);
+                            object? exception = exceptionProp?.GetValue(objectResult.Value);
+
+                            objectResult.Value = new ApiResponse<object>(success, code, message, shapedData, meta, exception);
+                        }
+                    }
+                }
+
                 await next();
                 return;
             }
 
-            if (objectResult.Value is ApiResponse)
+            if (objectResult.Value is ApiResponse nonGenericApiResponse)
             {
+                if (!string.IsNullOrWhiteSpace(selectString) && nonGenericApiResponse.Data != null)
+                {
+                    nonGenericApiResponse.Data = HPK.Core.JsonApi.JsonApiExtensions.ShapeData(nonGenericApiResponse.Data, selectString);
+                }
+
                 await next();
                 return;
             }
@@ -71,13 +110,9 @@ public class ApiResponseFilter : IAsyncResultFilter
             }
 
             // Apply Dynamic Select Shaping if ?select is provided
-            if (context.HttpContext.Request.Query.TryGetValue("select", out var selectValues))
+            if (!string.IsNullOrWhiteSpace(selectString) && payloadData != null)
             {
-                string selectString = selectValues.ToString();
-                if (!string.IsNullOrWhiteSpace(selectString) && payloadData != null)
-                {
-                    payloadData = HPK.Core.JsonApi.JsonApiExtensions.ShapeData(payloadData, selectString);
-                }
+                payloadData = HPK.Core.JsonApi.JsonApiExtensions.ShapeData(payloadData, selectString);
             }
 
             var statusCode = objectResult.StatusCode ?? context.HttpContext.Response.StatusCode;
