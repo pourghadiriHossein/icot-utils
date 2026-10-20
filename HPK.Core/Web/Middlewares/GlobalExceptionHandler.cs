@@ -31,6 +31,13 @@ public class GlobalExceptionHandler : IExceptionHandler
         // 1. Log the error (Serilog will pick this up)
         _logger.LogError(exception, "An unhandled exception occurred: {Message}", exception.Message);
 
+        // If it's a gRPC request, let gRPC handle its own trailers and status codes
+        if (httpContext.Request.ContentType?.StartsWith("application/grpc", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            _ = PublishErrorLogAsync(httpContext, exception);
+            return false;
+        }
+
         // 2. Prepare the standardized response
         var statusCode = StatusCodes.Status500InternalServerError;
         var message = "An internal server error occurred.";

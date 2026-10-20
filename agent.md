@@ -17,6 +17,7 @@ The backbone of the microservice architecture. It provides standardized behavior
 
 ## 🛡️ Security & Tenant Isolation (TenantValidationMiddleware)
 A critical part of `HPK.Core` is the `TenantValidationMiddleware`. It universally enforces multi-tenancy rules across all microservices before requests even reach the controllers:
+- **gRPC Internal Calls Bypass**: gRPC requests (`Content-Type: application/grpc` or `GrpcMethodMetadata`) represent direct inter-service communications and automatically bypass `TenantValidationMiddleware` checks and query injections.
 - **x-platform == "true"**: The caller has supreme privileges. They bypass `x-workspace` restrictions and can view/modify any workspace data.
 - **x-platform != "true"**: The caller is a tenant.
   - The `x-workspace` header MUST be present and valid. If missing, the middleware returns `403 Forbidden`.

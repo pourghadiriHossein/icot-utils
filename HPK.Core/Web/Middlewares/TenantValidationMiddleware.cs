@@ -20,6 +20,14 @@ public class TenantValidationMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        // Bypass for gRPC internal communication
+        if (context.Request.ContentType?.StartsWith("application/grpc", StringComparison.OrdinalIgnoreCase) == true ||
+            context.GetEndpoint()?.Metadata.GetMetadata<Grpc.AspNetCore.Server.GrpcMethodMetadata>() != null)
+        {
+            await _next(context);
+            return;
+        }
+
         // Bypass if the API Gateway resolved this as a public endpoint (authentication = false)
         if (context.Request.Headers["x-authentication"] == "false")
         {

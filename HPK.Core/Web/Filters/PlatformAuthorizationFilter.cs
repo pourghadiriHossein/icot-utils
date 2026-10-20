@@ -18,6 +18,12 @@ public class PlatformAuthorizationFilter : IAsyncActionFilter
     {
         var request = context.HttpContext.Request;
         
+        if (request.ContentType?.StartsWith("application/grpc", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            await next();
+            return;
+        }
+
         if (request.Headers["x-authentication"] == "false")
         {
             await next();
