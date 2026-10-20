@@ -58,3 +58,13 @@ A critical part of `HPK.Core` is the `TenantValidationMiddleware`. It universall
 - **Event Contract (`LogErrorEvent`)**: Defined in `HPK.Core.Events.LogErrorEvent`. Uses `Event = "log:error"` with lowest priority (`Priority = 1`), dispatched directly to `ACTION_SERVICE_QUEUE` (`icot_action_queue`).
 - **HTTP Exception Interception**: `GlobalExceptionHandler` intercepts all unhandled HTTP exceptions across all microservices, formats the response, and asynchronously fire-and-forgets a `LogErrorEvent` containing the originating service name, exception message, HTTP method, path, query string, trace ID, headers (`x-account`, `x-workspace`), and stack trace.
 - **Queue Consumer Exception Interception**: `PlatformConsumeErrorObserver` is automatically registered in `AddPlatformRabbitMq`. It listens to `ConsumeFault<T>` across all MassTransit consumers and publishes a `LogErrorEvent` with the faulted consumer type, message type, and exception details, safely skipping recursion if `T` is `LogErrorEvent`.
+
+### 🚀 Single-Port Kestrel Hosting & Inter-Service gRPC Architecture
+- **Single-Port Architecture**: Every microservice listens on a single port specified by `<SERVICE>_SERVICE_URL` (e.g. `http://localhost:5005`). No dual ports, no `port + 100`, and no separate `_GRPC_PORT` or `_GRPC_URL` variables.
+- **Kestrel Protocol Setup (`ConfigurePlatformHost`)**:
+  - **Backend Services**: Configured with `HttpProtocols.Http2` on the service port. Both gRPC endpoints and HTTP REST endpoints are hosted on this single HTTP/2 endpoint.
+  - **API Gateway (`gateway`)**: Configured with `HttpProtocols.Http1AndHttp2` to accept both HTTP/1.1 and HTTP/2 from external clients, while forwarding requests to backend microservices over HTTP/2 using YARP (`proxyRequest.Version = HttpVersion.Version20; proxyRequest.VersionPolicy = HttpVersionPolicy.RequestVersionExact;`).
+- **Inter-Service gRPC Resolution (`AddPlatformGrpcClient<TClient>`)**:
+  - Enables `SocketsHttpHandler.Http2UnencryptedSupport` via AppContext switch.
+  - Discovers target endpoint directly from `<SERVICE>_SERVICE_URL` without any port manipulation.
+  - Configures `GrpcClient` to target the service URL directly using HTTP/2 cleartext.

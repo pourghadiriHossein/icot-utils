@@ -80,14 +80,19 @@ public static class PlatformApiExtensions
 
         builder.WebHost.ConfigureKestrel(options =>
         {
-            options.ConfigureEndpointDefaults(listenOptions =>
+            options.ListenAnyIP(port, listenOptions =>
             {
-                listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
+                // Gateway accepts HTTP/1.1 and HTTP/2 for external traffic.
+                // Backend microservices listen with HTTP/2 for gRPC and API Gateway proxying.
+                listenOptions.Protocols = CurrentServiceName.Equals("gateway", StringComparison.OrdinalIgnoreCase)
+                    ? Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2
+                    : Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http2;
             });
         });
+
         AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
 
-        Console.WriteLine($"🌐 [{serviceName.ToUpper()}] Configured to listen on {bindingUrl} (Mode: {(isProduction ? "Production" : "Development")})");
+        Console.WriteLine($"🌐 [{serviceName.ToUpper()}] Configured to listen on {bindingUrl}");
 
         return builder;
     }
@@ -387,10 +392,12 @@ public static class PlatformApiExtensions
 
     public static IHttpClientBuilder AddPlatformGrpcClient<TClient>(this IServiceCollection services, string serviceName) where TClient : class
     {
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+
         return services.AddGrpcClient<TClient>(options =>
         {
             var cleanName = serviceName.Replace("Service", "", StringComparison.OrdinalIgnoreCase).Trim('_');
-            var upperName = cleanName.ToUpper();
+            var upperName = cleanName.ToUpperInvariant();
             if (upperName.Contains("GATEWAY") || upperName.Contains("API"))
             {
                 upperName = "API_GATEWAY";
@@ -398,10 +405,10 @@ public static class PlatformApiExtensions
 
             var urlKeys = new[]
             {
-                $"{upperName}_SERVICE_GRPC_URL",
-                $"{upperName}_GRPC_URL",
                 $"{upperName}_SERVICE_URL",
-                $"{upperName}_URL"
+                $"{upperName}_URL",
+                $"POSTGRES_{upperName}_SERVICE_URL",
+                $"POSTGRES_{upperName}_URL"
             };
 
             string? rawUrl = null;
