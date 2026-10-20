@@ -78,6 +78,15 @@ public static class PlatformApiExtensions
         builder.Configuration["ASPNETCORE_URLS"] = bindingUrl;
         builder.Configuration["ASPNETCORE_HTTP_PORTS"] = port.ToString();
 
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.ConfigureEndpointDefaults(listenOptions =>
+            {
+                listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
+            });
+        });
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+
         Console.WriteLine($"🌐 [{serviceName.ToUpper()}] Configured to listen on {bindingUrl} (Mode: {(isProduction ? "Production" : "Development")})");
 
         return builder;
@@ -160,6 +169,7 @@ public static class PlatformApiExtensions
         services.AddTransient<HPK.Core.Middlewares.RequestIdDelegatingHandler>();
         services.AddHttpClient("").AddHttpMessageHandler<HPK.Core.Middlewares.RequestIdDelegatingHandler>();
         services.AddScoped<HPK.Core.Utils.Services.IInternalValidationService, HPK.Core.Utils.Services.InternalValidationService>();
+        services.AddGrpc();
         // 1. Add Global Exception Handler
         services.AddExceptionHandler<HPK.Core.Middlewares.GlobalExceptionHandler>();
         services.AddProblemDetails();
@@ -373,5 +383,44 @@ public static class PlatformApiExtensions
         {
             ConfigureMultilingualSchema(schema.Items, visited);
         }
+    }
+
+    public static IHttpClientBuilder AddPlatformGrpcClient<TClient>(this IServiceCollection services, string serviceName) where TClient : class
+    {
+        return services.AddGrpcClient<TClient>(options =>
+        {
+            var cleanName = serviceName.Replace("Service", "", StringComparison.OrdinalIgnoreCase).Trim('_');
+            var upperName = cleanName.ToUpper();
+            if (upperName.Contains("GATEWAY") || upperName.Contains("API"))
+            {
+                upperName = "API_GATEWAY";
+            }
+
+            var urlKeys = new[]
+            {
+                $"{upperName}_SERVICE_GRPC_URL",
+                $"{upperName}_GRPC_URL",
+                $"{upperName}_SERVICE_URL",
+                $"{upperName}_URL"
+            };
+
+            string? rawUrl = null;
+            foreach (var key in urlKeys)
+            {
+                var val = Environment.GetEnvironmentVariable(key) ?? DotNetEnv.Env.GetString(key);
+                if (!string.IsNullOrWhiteSpace(val))
+                {
+                    rawUrl = val.Trim();
+                    break;
+                }
+            }
+
+            if (string.IsNullOrEmpty(rawUrl) || !Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri))
+            {
+                uri = new Uri("http://localhost:5000");
+            }
+
+            options.Address = uri;
+        });
     }
 }
