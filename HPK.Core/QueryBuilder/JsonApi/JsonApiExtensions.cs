@@ -1,6 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Threading.Tasks;
 
 namespace HPK.Core.JsonApi;
@@ -15,7 +20,7 @@ public static class JsonApiExtensions
         // 1. Includes (?include=author,comments.author)
         if (!string.IsNullOrWhiteSpace(options.Include))
         {
-            var includes = options.Include.Split(',', System.StringSplitOptions.RemoveEmptyEntries);
+            var includes = options.Include.Split(',', StringSplitOptions.RemoveEmptyEntries);
             foreach (var include in includes)
             {
                 // Convert snake_case or camelCase to PascalCase if needed, but EF Core handles exact casing best.
@@ -25,11 +30,15 @@ public static class JsonApiExtensions
             }
         }
 
-        // 2. Filtering (?filter[name]=john&filter[status]=active)
+        // 2. Filtering (?filter[name]=john&filter[status]=active&filter[$or]=slug:iran|title:iran|title.en:iran)
         if (options.Filter != null && options.Filter.Any())
         {
-            var andClauses = new System.Collections.Generic.List<string>();
-            var parameters = new System.Collections.Generic.List<object>();
+            var parameter = Expression.Parameter(typeof(T), "x");
+            var andExpressions = new List<Expression>();
+
+            var providerFullName = query.Provider.GetType().FullName ?? string.Empty;
+            bool isRelational = providerFullName.Contains("EntityFrameworkCore")
+                                && !providerFullName.Contains("InMemory");
 
             foreach (var filter in options.Filter)
             {
@@ -37,95 +46,62 @@ public static class JsonApiExtensions
                 var rawValue = filter.Value?.Trim();
                 if (string.IsNullOrEmpty(rawKey) || string.IsNullOrEmpty(rawValue)) continue;
 
-                // Handle global OR across multiple fields: ?filter[$or]=age:>18|name:john
-                if (rawKey.Equals("$or", System.StringComparison.OrdinalIgnoreCase))
+                // Handle global OR across multiple fields: ?filter[$or]=age:>18|name:john|title.en:iran
+                if (rawKey.Equals("$or", StringComparison.OrdinalIgnoreCase))
                 {
-                    var orConditions = rawValue.Split('|', System.StringSplitOptions.RemoveEmptyEntries);
-                    var orClauses = new System.Collections.Generic.List<string>();
+                    var orConditions = rawValue.Split('|', StringSplitOptions.RemoveEmptyEntries);
+                    Expression? combinedOr = null;
+
                     foreach (var condition in orConditions)
                     {
                         var parts = condition.Split(':', 2);
                         if (parts.Length == 2)
                         {
-                            var orFieldName = ToPascalCase(parts[0].Trim());
-                            var orPropInfo = typeof(T).GetProperty(orFieldName, System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                            if (orPropInfo != null)
+                            var fieldKey = parts[0].Trim();
+                            var conditionVal = parts[1].Trim();
+
+                            if (TryResolveProperty(typeof(T), fieldKey, out var propInfo, out var subKey) && propInfo != null)
                             {
-                                var parsed = BuildCondition(orFieldName, parts[1].Trim(), orPropInfo.PropertyType, parameters);
-                                if (!string.IsNullOrEmpty(parsed)) orClauses.Add(parsed);
+                                var expr = BuildSingleConditionExpression(parameter, propInfo, conditionVal, subKey, isRelational);
+                                if (expr != null)
+                                {
+                                    combinedOr = combinedOr == null ? expr : Expression.OrElse(combinedOr, expr);
+                                }
                             }
                         }
                     }
-                    if (orClauses.Any()) andClauses.Add($"({string.Join(" || ", orClauses)})");
+
+                    if (combinedOr != null)
+                    {
+                        andExpressions.Add(combinedOr);
+                    }
                     continue;
                 }
 
-                // Check for dictionary / nested multilingual field: e.g. filter[title]=ایرا or filter[title.fa]=ایرا or filter[title][fa]=ایرا
-                var normalizedKey = rawKey.Replace("][", ".").Replace("[", ".").Replace("]", "");
-                string field;
-                string? subKey = null;
-
-                if (normalizedKey.Contains('.'))
+                // Regular filter field (including dictionary fields and nested keys like filter[title.en]=iran or filter[title][en]=iran)
+                if (TryResolveProperty(typeof(T), rawKey, out var propertyInfo, out var fieldSubKey) && propertyInfo != null)
                 {
-                    var dotIdx = normalizedKey.IndexOf('.');
-                    var candidateField = ToPascalCase(normalizedKey.Substring(0, dotIdx));
-                    var candidateProp = typeof(T).GetProperty(candidateField, System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                    if (candidateProp != null && typeof(System.Collections.IDictionary).IsAssignableFrom(candidateProp.PropertyType))
+                    var expr = BuildSingleConditionExpression(parameter, propertyInfo, rawValue, fieldSubKey, isRelational);
+                    if (expr != null)
                     {
-                        field = candidateField;
-                        subKey = normalizedKey.Substring(dotIdx + 1);
+                        andExpressions.Add(expr);
                     }
-                    else
-                    {
-                        field = ToPascalCase(rawKey);
-                    }
-                }
-                else
-                {
-                    field = ToPascalCase(normalizedKey);
-                }
-
-                var propertyInfo = typeof(T).GetProperty(field, System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                if (propertyInfo == null) continue;
-
-                // Handle dictionary filtering (multilingual jsonb fields)
-                if (typeof(System.Collections.IDictionary).IsAssignableFrom(propertyInfo.PropertyType))
-                {
-                    query = ApplyDictionaryFilter(query, propertyInfo, rawValue, subKey);
-                    continue;
-                }
-
-                // Handle OR for the same field: ?filter[status]=active|pending (not starting with in:/nin:)
-                if (rawValue.Contains("|") && !rawValue.StartsWith("in:", System.StringComparison.OrdinalIgnoreCase) && !rawValue.StartsWith("nin:", System.StringComparison.OrdinalIgnoreCase))
-                {
-                    var fieldOrClauses = new System.Collections.Generic.List<string>();
-                    var values = rawValue.Split('|', System.StringSplitOptions.RemoveEmptyEntries);
-                    foreach (var v in values)
-                    {
-                        var parsed = BuildCondition(field, v.Trim(), propertyInfo.PropertyType, parameters);
-                        if (!string.IsNullOrEmpty(parsed)) fieldOrClauses.Add(parsed);
-                    }
-                    if (fieldOrClauses.Any()) andClauses.Add($"({string.Join(" || ", fieldOrClauses)})");
-                }
-                else
-                {
-                    var parsed = BuildCondition(field, rawValue, propertyInfo.PropertyType, parameters);
-                    if (!string.IsNullOrEmpty(parsed)) andClauses.Add(parsed);
                 }
             }
 
-            if (andClauses.Any())
+            if (andExpressions.Any())
             {
-                var combinedWhere = string.Join(" && ", andClauses);
-                query = query.Where(combinedWhere, parameters.ToArray());
+                Expression combinedAnd = andExpressions.Aggregate(Expression.AndAlso);
+                var lambda = Expression.Lambda<Func<T, bool>>(combinedAnd, parameter);
+                query = query.Where(lambda);
             }
         }
 
         // 3. Sorting (?sort=-created_at,title)
         if (!string.IsNullOrWhiteSpace(options.Sort))
         {
-            var sortFields = options.Sort.Split(',', System.StringSplitOptions.RemoveEmptyEntries);
-            var validOrderByStrings = new System.Collections.Generic.List<string>();
+            var sortFields = options.Sort.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            var validOrderByStrings = new List<string>();
 
             foreach (var f in sortFields)
             {
@@ -134,7 +110,7 @@ public static class JsonApiExtensions
                 var cleanField = isDescending ? field.Substring(1) : field;
                 var pascalField = ToPascalCase(cleanField);
 
-                var propertyInfo = typeof(T).GetProperty(pascalField, System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                var propertyInfo = typeof(T).GetProperty(pascalField, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
                 if (propertyInfo != null)
                 {
                     validOrderByStrings.Add(isDescending ? $"{pascalField} descending" : pascalField);
@@ -148,13 +124,12 @@ public static class JsonApiExtensions
             }
         }
 
-
         // Fallback sorting if none provided (required by EF Core for Skip/Take)
         bool hasSort = !string.IsNullOrWhiteSpace(options.Sort);
         if (!hasSort && !query.Expression.ToString().Contains("OrderBy"))
         {
-            var createdAtProp = typeof(T).GetProperty("CreatedAt", System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-            var idProp = typeof(T).GetProperty("Id", System.Reflection.BindingFlags.IgnoreCase | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            var createdAtProp = typeof(T).GetProperty("CreatedAt", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+            var idProp = typeof(T).GetProperty("Id", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
             
             if (createdAtProp != null) 
             {
@@ -179,132 +154,108 @@ public static class JsonApiExtensions
         return new PagedResult<T>(pagedData, totalCount, pageNumber, pageSize);
     }
 
-    private static string ToPascalCase(string input)
+    private static bool TryResolveProperty(Type entityType, string rawKey, out PropertyInfo? propertyInfo, out string? subKey)
     {
-        if (string.IsNullOrEmpty(input)) return input;
-        
-        var words = input.Split(new[] { '_', '-' }, System.StringSplitOptions.RemoveEmptyEntries);
-        for (int i = 0; i < words.Length; i++)
+        var normalizedKey = rawKey.Trim().Replace("][", ".").Replace("[", ".").Replace("]", "");
+        propertyInfo = null;
+        subKey = null;
+
+        if (normalizedKey.Contains('.'))
         {
-            if (words[i].Length > 0)
+            var dotIdx = normalizedKey.IndexOf('.');
+            var candidateField = ToPascalCase(normalizedKey.Substring(0, dotIdx));
+            var candidateProp = entityType.GetProperty(candidateField, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+            if (candidateProp != null && typeof(IDictionary).IsAssignableFrom(candidateProp.PropertyType))
             {
-                words[i] = char.ToUpper(words[i][0]) + words[i].Substring(1).ToLower();
-            }
-        }
-        return string.Join("", words);
-    }
-
-    private static string? BuildCondition(string field, string value, System.Type propertyType, System.Collections.Generic.List<object> parameters)
-    {
-        bool isString = propertyType == typeof(string);
-
-        // IN / NOT IN
-        if (value.StartsWith("in:", System.StringComparison.OrdinalIgnoreCase))
-        {
-            var inValues = value.Substring(3).Split(',', System.StringSplitOptions.RemoveEmptyEntries);
-            var typedList = ConvertList(inValues, propertyType);
-            if (typedList != null)
-            {
-                parameters.Add(typedList);
-                return $"@{parameters.Count - 1}.Contains({field})";
-            }
-            return null;
-        }
-        if (value.StartsWith("nin:", System.StringComparison.OrdinalIgnoreCase))
-        {
-            var ninValues = value.Substring(4).Split(',', System.StringSplitOptions.RemoveEmptyEntries);
-            var typedList = ConvertList(ninValues, propertyType);
-            if (typedList != null)
-            {
-                parameters.Add(typedList);
-                return $"!@{parameters.Count - 1}.Contains({field})";
-            }
-            return null;
-        }
-
-        string op = "==";
-        string cleanValue = value;
-
-        if (value.StartsWith(">=")) { op = ">="; cleanValue = value.Substring(2); }
-        else if (value.StartsWith("<=")) { op = "<="; cleanValue = value.Substring(2); }
-        else if (value.StartsWith("!=")) { op = "!="; cleanValue = value.Substring(2); }
-        else if (value.StartsWith("!>")) { op = "<="; cleanValue = value.Substring(2); }
-        else if (value.StartsWith("!<")) { op = ">="; cleanValue = value.Substring(2); }
-        else if (value.StartsWith(">")) { op = ">"; cleanValue = value.Substring(1); }
-        else if (value.StartsWith("<")) { op = "<"; cleanValue = value.Substring(1); }
-        else if (value.StartsWith("!")) { op = "!="; cleanValue = value.Substring(1); }
-        else if (value.StartsWith("==")) { op = "=="; cleanValue = value.Substring(2); }
-        else if (value.StartsWith("=")) { op = "=="; cleanValue = value.Substring(1); }
-
-        cleanValue = cleanValue.Trim();
-
-        // Handle null / !null filtering for nullable and reference properties
-        if (cleanValue.Equals("null", System.StringComparison.OrdinalIgnoreCase))
-        {
-            bool isNullable = !propertyType.IsValueType || System.Nullable.GetUnderlyingType(propertyType) != null;
-            if (!isNullable)
-            {
-                return (op == "!=" || value.StartsWith("!")) ? null : "1 == 0";
+                propertyInfo = candidateProp;
+                subKey = normalizedKey.Substring(dotIdx + 1);
+                return true;
             }
 
-            return (op == "!=" || value.StartsWith("!")) ? $"{field} != null" : $"{field} == null";
-        }
+            var directField = ToPascalCase(normalizedKey);
+            var directProp = entityType.GetProperty(directField, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+            if (directProp != null)
+            {
+                propertyInfo = directProp;
+                return true;
+            }
 
-        if (isString)
-        {
-            if (op == "==" && (value.StartsWith("==") || value.StartsWith("="))) 
+            if (candidateProp != null)
             {
-                parameters.Add(cleanValue);
-                return $"{field} == @{parameters.Count - 1}";
+                propertyInfo = candidateProp;
+                subKey = normalizedKey.Substring(dotIdx + 1);
+                return true;
             }
-            if (op == "!=" || value.StartsWith("!"))
-            {
-                parameters.Add(cleanValue);
-                return $"{field} != @{parameters.Count - 1}";
-            }
-            
-            // Default string behavior is Contains
-            parameters.Add(cleanValue);
-            return $"{field}.Contains(@{parameters.Count - 1})";
-        }
-        else if (typeof(System.Collections.IDictionary).IsAssignableFrom(propertyType))
-        {
-            parameters.Add(cleanValue);
-            return $"{field} != null && {field}.Any(Value != null && Value.Contains(@{parameters.Count - 1}))";
         }
         else
         {
-            try
+            var field = ToPascalCase(normalizedKey);
+            propertyInfo = entityType.GetProperty(field, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+            if (propertyInfo != null)
             {
-                var convertedValue = ConvertValue(cleanValue, propertyType);
-                parameters.Add(convertedValue);
-                return $"{field} {op} @{parameters.Count - 1}";
-            }
-            catch
-            {
-                return null; 
+                return true;
             }
         }
+
+        return false;
     }
 
-    private static IQueryable<T> ApplyDictionaryFilter<T>(IQueryable<T> query, System.Reflection.PropertyInfo propertyInfo, string value, string? subKey) where T : class
+    private static Expression? BuildSingleConditionExpression(
+        Expression parameter, 
+        PropertyInfo propertyInfo, 
+        string rawValue, 
+        string? subKey, 
+        bool isRelational)
     {
-        if (string.IsNullOrWhiteSpace(value)) return query;
+        if (string.IsNullOrWhiteSpace(rawValue)) return null;
 
-        var providerFullName = query.Provider.GetType().FullName ?? string.Empty;
-        bool isRelational = providerFullName.Contains("EntityFrameworkCore")
-                            && !providerFullName.Contains("InMemory");
+        var propertyType = propertyInfo.PropertyType;
 
-        var parameter = System.Linq.Expressions.Expression.Parameter(typeof(T), "x");
-        var propertyAccess = System.Linq.Expressions.Expression.Property(parameter, propertyInfo);
+        // 1. Dictionary property (multilingual jsonb)
+        if (typeof(IDictionary).IsAssignableFrom(propertyType))
+        {
+            return BuildDictionaryCondition(parameter, propertyInfo, rawValue, subKey, isRelational);
+        }
 
-        var terms = value.Split('|', System.StringSplitOptions.RemoveEmptyEntries);
+        // 2. String or Value type with multiple OR terms: e.g. status=active|pending or age=>18|<10
+        // (excluding in: and nin:)
+        if (rawValue.Contains('|') && 
+            !rawValue.StartsWith("in:", StringComparison.OrdinalIgnoreCase) && 
+            !rawValue.StartsWith("nin:", StringComparison.OrdinalIgnoreCase))
+        {
+            var terms = rawValue.Split('|', StringSplitOptions.RemoveEmptyEntries);
+            Expression? orExpr = null;
+            foreach (var term in terms)
+            {
+                var singleExpr = BuildSingleValueCondition(parameter, propertyInfo, term.Trim(), isRelational);
+                if (singleExpr != null)
+                {
+                    orExpr = orExpr == null ? singleExpr : Expression.OrElse(orExpr, singleExpr);
+                }
+            }
+            return orExpr;
+        }
+
+        return BuildSingleValueCondition(parameter, propertyInfo, rawValue, isRelational);
+    }
+
+    private static Expression? BuildDictionaryCondition(
+        Expression parameter, 
+        PropertyInfo propertyInfo, 
+        string value, 
+        string? subKey, 
+        bool isRelational)
+    {
+        var terms = value.Split('|', StringSplitOptions.RemoveEmptyEntries);
+        if (!terms.Any()) return null;
+
+        var propertyAccess = Expression.Property(parameter, propertyInfo);
 
         if (isRelational)
         {
-            var convertToObject = System.Linq.Expressions.Expression.Convert(propertyAccess, typeof(object));
-            var convertToString = System.Linq.Expressions.Expression.Convert(convertToObject, typeof(string));
-            var efFunctions = System.Linq.Expressions.Expression.Property(null, typeof(Microsoft.EntityFrameworkCore.EF), nameof(Microsoft.EntityFrameworkCore.EF.Functions));
+            var convertToObject = Expression.Convert(propertyAccess, typeof(object));
+            var convertToString = Expression.Convert(convertToObject, typeof(string));
+            var efFunctions = Expression.Property(null, typeof(Microsoft.EntityFrameworkCore.EF), nameof(Microsoft.EntityFrameworkCore.EF.Functions));
 
             var iLikeMethod = typeof(Microsoft.EntityFrameworkCore.NpgsqlDbFunctionsExtensions).GetMethod(
                 nameof(Microsoft.EntityFrameworkCore.NpgsqlDbFunctionsExtensions.ILike),
@@ -313,9 +264,9 @@ public static class JsonApiExtensions
                 nameof(Microsoft.EntityFrameworkCore.DbFunctionsExtensions.Like),
                 new[] { typeof(Microsoft.EntityFrameworkCore.DbFunctions), typeof(string), typeof(string) });
 
-            if (iLikeMethod == null) return query;
+            if (iLikeMethod == null) return null;
 
-            System.Linq.Expressions.Expression? combinedExpr = null;
+            Expression? combinedExpr = null;
 
             foreach (var term in terms)
             {
@@ -337,115 +288,282 @@ public static class JsonApiExtensions
                     pattern = isExact ? $"%\"{searchVal}\"%" : $"%{searchVal}%";
                 }
 
-                var patternConstant = System.Linq.Expressions.Expression.Constant(pattern, typeof(string));
-                System.Linq.Expressions.Expression call = System.Linq.Expressions.Expression.Call(iLikeMethod, efFunctions, convertToString, patternConstant);
+                var patternConstant = Expression.Constant(pattern, typeof(string));
+                Expression call = Expression.Call(iLikeMethod, efFunctions, convertToString, patternConstant);
 
                 if (isNotEqual)
                 {
-                    call = System.Linq.Expressions.Expression.Not(call);
+                    var isNull = Expression.Equal(propertyAccess, Expression.Constant(null, propertyInfo.PropertyType));
+                    call = Expression.OrElse(isNull, Expression.Not(call));
                 }
 
-                combinedExpr = combinedExpr == null ? call : System.Linq.Expressions.Expression.OrElse(combinedExpr, call);
+                combinedExpr = combinedExpr == null ? call : Expression.OrElse(combinedExpr, call);
             }
 
-            if (combinedExpr != null)
+            return combinedExpr;
+        }
+        else
+        {
+            // In-memory fallback
+            var checkMethod = typeof(JsonApiExtensions).GetMethod(nameof(CheckDictionaryMatch), BindingFlags.Public | BindingFlags.Static)!;
+            var convertProp = Expression.Convert(propertyAccess, typeof(object));
+            return Expression.Call(checkMethod, convertProp, Expression.Constant(value), Expression.Constant(subKey, typeof(string)));
+        }
+    }
+
+    public static bool CheckDictionaryMatch(object? dictObj, string rawValue, string? subKey)
+    {
+        if (dictObj is not IDictionary dict) return false;
+
+        var terms = rawValue.Split('|', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var term in terms)
+        {
+            var cleanTerm = term.Trim();
+            bool isExact = cleanTerm.StartsWith("==") || cleanTerm.StartsWith("=");
+            bool isNotEqual = cleanTerm.StartsWith("!=") || cleanTerm.StartsWith("!");
+
+            string searchVal = isExact
+                ? (cleanTerm.StartsWith("==") ? cleanTerm.Substring(2) : cleanTerm.Substring(1)).Trim()
+                : (isNotEqual ? (cleanTerm.StartsWith("!=") ? cleanTerm.Substring(2) : cleanTerm.Substring(1)).Trim() : cleanTerm);
+
+            bool match = false;
+            if (!string.IsNullOrEmpty(subKey))
             {
-                var lambda = System.Linq.Expressions.Expression.Lambda<Func<T, bool>>(combinedExpr, parameter);
-                return query.Where(lambda);
+                if (dict.Contains(subKey))
+                {
+                    var val = dict[subKey]?.ToString();
+                    if (val != null)
+                    {
+                        match = isExact
+                            ? string.Equals(val, searchVal, StringComparison.OrdinalIgnoreCase)
+                            : val.Contains(searchVal, StringComparison.OrdinalIgnoreCase);
+                    }
+                }
             }
-            return query;
+            else
+            {
+                foreach (DictionaryEntry entry in dict)
+                {
+                    var val = entry.Value?.ToString();
+                    if (val == null) continue;
+                    if (isExact && string.Equals(val, searchVal, StringComparison.OrdinalIgnoreCase)) { match = true; break; }
+                    if (!isExact && val.Contains(searchVal, StringComparison.OrdinalIgnoreCase)) { match = true; break; }
+                }
+            }
+
+            if (isNotEqual ? !match : match) return true;
         }
 
-        // In-memory fallback
-        Func<T, bool> inMemoryPredicate = x =>
+        return false;
+    }
+
+    private static Expression? BuildSingleValueCondition(
+        Expression parameter, 
+        PropertyInfo propertyInfo, 
+        string value, 
+        bool isRelational)
+    {
+        var propertyType = propertyInfo.PropertyType;
+        bool isString = propertyType == typeof(string);
+        var propertyAccess = Expression.Property(parameter, propertyInfo);
+
+        // IN / NOT IN
+        if (value.StartsWith("in:", StringComparison.OrdinalIgnoreCase))
         {
-            var dict = propertyInfo.GetValue(x) as System.Collections.IDictionary;
-            if (dict == null) return false;
+            var inValues = value.Substring(3).Split(',', StringSplitOptions.RemoveEmptyEntries);
+            return BuildListContainmentExpression(propertyAccess, propertyType, inValues, isNot: false);
+        }
 
-            foreach (var term in terms)
+        if (value.StartsWith("nin:", StringComparison.OrdinalIgnoreCase))
+        {
+            var ninValues = value.Substring(4).Split(',', StringSplitOptions.RemoveEmptyEntries);
+            return BuildListContainmentExpression(propertyAccess, propertyType, ninValues, isNot: true);
+        }
+
+        string op = "==";
+        string cleanValue = value;
+
+        if (value.StartsWith(">=")) { op = ">="; cleanValue = value.Substring(2); }
+        else if (value.StartsWith("<=")) { op = "<="; cleanValue = value.Substring(2); }
+        else if (value.StartsWith("!=")) { op = "!="; cleanValue = value.Substring(2); }
+        else if (value.StartsWith("!>")) { op = "<="; cleanValue = value.Substring(2); }
+        else if (value.StartsWith("!<")) { op = ">="; cleanValue = value.Substring(2); }
+        else if (value.StartsWith(">")) { op = ">"; cleanValue = value.Substring(1); }
+        else if (value.StartsWith("<")) { op = "<"; cleanValue = value.Substring(1); }
+        else if (value.StartsWith("!")) { op = "!="; cleanValue = value.Substring(1); }
+        else if (value.StartsWith("==")) { op = "=="; cleanValue = value.Substring(2); }
+        else if (value.StartsWith("=")) { op = "=="; cleanValue = value.Substring(1); }
+
+        cleanValue = cleanValue.Trim();
+
+        // Handle null / !null
+        if (cleanValue.Equals("null", StringComparison.OrdinalIgnoreCase))
+        {
+            bool isNullable = !propertyType.IsValueType || Nullable.GetUnderlyingType(propertyType) != null;
+            if (!isNullable)
             {
-                var cleanTerm = term.Trim();
-                bool isExact = cleanTerm.StartsWith("==") || cleanTerm.StartsWith("=");
-                bool isNotEqual = cleanTerm.StartsWith("!=") || cleanTerm.StartsWith("!");
+                return (op == "!=" || value.StartsWith("!")) ? Expression.Constant(true) : Expression.Constant(false);
+            }
 
-                string searchVal = isExact
-                    ? (cleanTerm.StartsWith("==") ? cleanTerm.Substring(2) : cleanTerm.Substring(1)).Trim()
-                    : (isNotEqual ? (cleanTerm.StartsWith("!=") ? cleanTerm.Substring(2) : cleanTerm.Substring(1)).Trim() : cleanTerm);
+            return (op == "!=" || value.StartsWith("!")) 
+                ? Expression.NotEqual(propertyAccess, Expression.Constant(null, propertyType))
+                : Expression.Equal(propertyAccess, Expression.Constant(null, propertyType));
+        }
 
-                bool match = false;
-                if (!string.IsNullOrEmpty(subKey))
+        if (isString)
+        {
+            if (op == "==" && (value.StartsWith("==") || value.StartsWith("=")))
+            {
+                return Expression.Equal(propertyAccess, Expression.Constant(cleanValue, typeof(string)));
+            }
+            if (op == "!=" || value.StartsWith("!"))
+            {
+                var isNull = Expression.Equal(propertyAccess, Expression.Constant(null, typeof(string)));
+                var notEq = Expression.NotEqual(propertyAccess, Expression.Constant(cleanValue, typeof(string)));
+                return Expression.OrElse(isNull, notEq);
+            }
+
+            // Default string behavior is ILIKE / Contains
+            if (isRelational)
+            {
+                var efFunctions = Expression.Property(null, typeof(Microsoft.EntityFrameworkCore.EF), nameof(Microsoft.EntityFrameworkCore.EF.Functions));
+                var iLikeMethod = typeof(Microsoft.EntityFrameworkCore.NpgsqlDbFunctionsExtensions).GetMethod(
+                    nameof(Microsoft.EntityFrameworkCore.NpgsqlDbFunctionsExtensions.ILike),
+                    new[] { typeof(Microsoft.EntityFrameworkCore.DbFunctions), typeof(string), typeof(string) })
+                    ?? typeof(Microsoft.EntityFrameworkCore.DbFunctionsExtensions).GetMethod(
+                    nameof(Microsoft.EntityFrameworkCore.DbFunctionsExtensions.Like),
+                    new[] { typeof(Microsoft.EntityFrameworkCore.DbFunctions), typeof(string), typeof(string) });
+
+                if (iLikeMethod != null)
                 {
-                    if (dict.Contains(subKey))
-                    {
-                        var val = dict[subKey]?.ToString();
-                        if (val != null)
-                        {
-                            match = isExact
-                                ? string.Equals(val, searchVal, System.StringComparison.OrdinalIgnoreCase)
-                                : val.Contains(searchVal, System.StringComparison.OrdinalIgnoreCase);
-                        }
-                    }
+                    return Expression.Call(iLikeMethod, efFunctions, propertyAccess, Expression.Constant($"%{cleanValue}%"));
+                }
+            }
+
+            // In-memory or fallback string contains
+            var notNull = Expression.NotEqual(propertyAccess, Expression.Constant(null, typeof(string)));
+            var containsMethod = typeof(string).GetMethod(nameof(string.Contains), new[] { typeof(string), typeof(StringComparison) })!;
+            var containsCall = Expression.Call(propertyAccess, containsMethod, Expression.Constant(cleanValue), Expression.Constant(StringComparison.OrdinalIgnoreCase));
+            return Expression.AndAlso(notNull, containsCall);
+        }
+        else
+        {
+            try
+            {
+                var underlyingType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+                var convertedValue = ConvertValue(cleanValue, underlyingType);
+                if (convertedValue == null) return null;
+
+                Expression constant;
+                if (propertyType != underlyingType)
+                {
+                    constant = Expression.Convert(Expression.Constant(convertedValue, underlyingType), propertyType);
                 }
                 else
                 {
-                    foreach (System.Collections.DictionaryEntry entry in dict)
-                    {
-                        var val = entry.Value?.ToString();
-                        if (val == null) continue;
-                        if (isExact && string.Equals(val, searchVal, System.StringComparison.OrdinalIgnoreCase)) { match = true; break; }
-                        if (!isExact && val.Contains(searchVal, System.StringComparison.OrdinalIgnoreCase)) { match = true; break; }
-                    }
+                    constant = Expression.Constant(convertedValue, propertyType);
                 }
 
-                if (isNotEqual ? !match : match) return true;
+                return op switch
+                {
+                    ">=" => Expression.GreaterThanOrEqual(propertyAccess, constant),
+                    "<=" => Expression.LessThanOrEqual(propertyAccess, constant),
+                    ">" => Expression.GreaterThan(propertyAccess, constant),
+                    "<" => Expression.LessThan(propertyAccess, constant),
+                    "!=" => Expression.NotEqual(propertyAccess, constant),
+                    _ => Expression.Equal(propertyAccess, constant)
+                };
             }
-
-            return false;
-        };
-
-        return query.Where(x => inMemoryPredicate(x));
+            catch
+            {
+                return null;
+            }
+        }
     }
 
-    private static object ConvertValue(string value, System.Type targetType)
+    private static Expression? BuildListContainmentExpression(
+        Expression propertyAccess, 
+        Type propertyType, 
+        string[] rawValues, 
+        bool isNot)
     {
-        var underlyingType = System.Nullable.GetUnderlyingType(targetType) ?? targetType;
+        var underlyingType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+        var listType = typeof(List<>).MakeGenericType(underlyingType);
+        var list = (IList?)Activator.CreateInstance(listType);
+        if (list == null) return null;
+
+        foreach (var v in rawValues)
+        {
+            var converted = ConvertValue(v.Trim(), underlyingType);
+            if (converted != null)
+            {
+                list.Add(converted);
+            }
+        }
+
+        var containsMethod = listType.GetMethod("Contains", new[] { underlyingType });
+        if (containsMethod == null) return null;
+
+        if (Nullable.GetUnderlyingType(propertyType) != null)
+        {
+            var hasValue = Expression.Property(propertyAccess, "HasValue");
+            var valueAccess = Expression.Property(propertyAccess, "Value");
+            var containsCall = Expression.Call(Expression.Constant(list), containsMethod, valueAccess);
+
+            if (isNot)
+            {
+                return Expression.OrElse(Expression.Not(hasValue), Expression.Not(containsCall));
+            }
+            else
+            {
+                return Expression.AndAlso(hasValue, containsCall);
+            }
+        }
+        else
+        {
+            var containsCall = Expression.Call(Expression.Constant(list), containsMethod, propertyAccess);
+            return isNot ? Expression.Not(containsCall) : containsCall;
+        }
+    }
+
+    private static string ToPascalCase(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return input;
         
-        if (underlyingType == typeof(System.Guid))
-            return System.Guid.Parse(value);
+        var words = input.Split(new[] { '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < words.Length; i++)
+        {
+            if (words[i].Length > 0)
+            {
+                words[i] = char.ToUpper(words[i][0]) + words[i].Substring(1).ToLower();
+            }
+        }
+        return string.Join("", words);
+    }
+
+    private static object? ConvertValue(string value, Type targetType)
+    {
+        var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        
+        if (underlyingType == typeof(Guid))
+            return Guid.Parse(value);
             
         if (underlyingType.IsEnum)
-            return System.Enum.Parse(underlyingType, value, true);
+            return Enum.Parse(underlyingType, value, true);
 
-        if (underlyingType == typeof(System.DateTime))
+        if (underlyingType == typeof(DateTime))
         {
-            var dt = System.Convert.ToDateTime(value);
-            if (dt.Kind == System.DateTimeKind.Unspecified)
-                return System.DateTime.SpecifyKind(dt, System.DateTimeKind.Utc);
+            var dt = Convert.ToDateTime(value);
+            if (dt.Kind == DateTimeKind.Unspecified)
+                return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             return dt.ToUniversalTime();
         }
 
-        return System.Convert.ChangeType(value, underlyingType);
-    }
+        if (underlyingType == typeof(bool))
+            return bool.Parse(value);
 
-    private static System.Collections.IList? ConvertList(string[] values, System.Type targetType)
-    {
-        try
-        {
-            var underlyingType = System.Nullable.GetUnderlyingType(targetType) ?? targetType;
-            var listType = typeof(System.Collections.Generic.List<>).MakeGenericType(underlyingType);
-            var list = (System.Collections.IList?)System.Activator.CreateInstance(listType);
-            if (list == null) return null;
-
-            foreach (var v in values)
-            {
-                list.Add(ConvertValue(v.Trim(), underlyingType));
-            }
-            return list;
-        }
-        catch
-        {
-            return null;
-        }
+        return Convert.ChangeType(value, underlyingType);
     }
 
     /// <summary>
@@ -456,7 +574,7 @@ public static class JsonApiExtensions
     {
         if (data == null || string.IsNullOrWhiteSpace(selectQuery)) return data;
 
-        bool isCollection = data is System.Collections.IEnumerable && data.GetType() != typeof(string);
+        bool isCollection = data is IEnumerable && data.GetType() != typeof(string);
         
         var elementType = isCollection 
             ? (data.GetType().GetGenericArguments().FirstOrDefault() ?? data.GetType().GetElementType())
@@ -464,14 +582,14 @@ public static class JsonApiExtensions
 
         if (elementType == null) return data;
 
-        var properties = elementType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+        var properties = elementType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                                     .Select(p => p.Name)
                                     .ToList();
 
-        var selectFields = selectQuery.Split(',', System.StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
+        var selectFields = selectQuery.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
 
-        var includedFields = new System.Collections.Generic.List<string>();
-        var excludedFields = new System.Collections.Generic.List<string>();
+        var includedFields = new List<string>();
+        var excludedFields = new List<string>();
 
         foreach (var field in selectFields)
         {
@@ -479,11 +597,11 @@ public static class JsonApiExtensions
             else includedFields.Add(ToPascalCase(field));
         }
 
-        var finalFields = new System.Collections.Generic.List<string>();
+        var finalFields = new List<string>();
 
         if (includedFields.Any())
         {
-            finalFields = properties.Where(p => includedFields.Contains(p, System.StringComparer.OrdinalIgnoreCase)).ToList();
+            finalFields = properties.Where(p => includedFields.Contains(p, StringComparer.OrdinalIgnoreCase)).ToList();
         }
         else
         {
@@ -492,7 +610,7 @@ public static class JsonApiExtensions
 
         if (excludedFields.Any())
         {
-            finalFields.RemoveAll(p => excludedFields.Contains(p, System.StringComparer.OrdinalIgnoreCase));
+            finalFields.RemoveAll(p => excludedFields.Contains(p, StringComparer.OrdinalIgnoreCase));
         }
 
         if (!finalFields.Any()) return data;
@@ -500,11 +618,11 @@ public static class JsonApiExtensions
         // Use dictionaries for shaping to avoid Dynamic LINQ reserved keyword issues (like 'Parent')
         if (isCollection)
         {
-            var list = new System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, object?>>();
-            foreach (var item in (System.Collections.IEnumerable)data!)
+            var list = new List<Dictionary<string, object?>>();
+            foreach (var item in (IEnumerable)data!)
             {
                 if (item == null) continue;
-                var dict = new System.Collections.Generic.Dictionary<string, object?>();
+                var dict = new Dictionary<string, object?>();
                 foreach (var field in finalFields)
                 {
                     var prop = elementType.GetProperty(field);
@@ -517,7 +635,7 @@ public static class JsonApiExtensions
         }
         else
         {
-            var dict = new System.Collections.Generic.Dictionary<string, object?>();
+            var dict = new Dictionary<string, object?>();
             foreach (var field in finalFields)
             {
                 var prop = elementType.GetProperty(field);
