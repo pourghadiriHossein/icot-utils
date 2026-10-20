@@ -69,3 +69,9 @@ A critical part of `HPK.Core` is the `TenantValidationMiddleware`. It universall
   - Enables `SocketsHttpHandler.Http2UnencryptedSupport` via AppContext switch.
   - Discovers target endpoint directly from `<SERVICE>_SERVICE_URL` without any port manipulation.
   - Configures `GrpcClient` to target the service URL directly using HTTP/2 cleartext.
+
+### 📦 Self-Contained Proto Contract Architecture (Docker & CI Deployment Rule)
+- **Zero Cross-Repository References**: In Docker and CI environments, each microservice builds inside an isolated build context containing only its own repository. NEVER reference `.proto` files using relative cross-repository paths (e.g. `..\..\..\other-service\...`).
+- **Local Contract Placement**:
+  - **Service Provider (Server)**: Hosts contract in `src/{Service}.API/Protos/{name}.proto` with `<Protobuf Include="Protos\{name}.proto" GrpcServices="Server" />`.
+  - **Service Consumer (Client)**: Copies the contract locally into `src/{Service}.Infrastructure/Protos/{name}.proto` with `<Protobuf Include="Protos\{name}.proto" GrpcServices="Client" />`.
