@@ -3,7 +3,7 @@ using DotNetEnv;
 using MassTransit;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace HPK.Core.Utils.Services;
+namespace ICOT.Core.Utils.Services;
 
 public static class RabbitMqExtensions
 {
@@ -33,7 +33,7 @@ public static class RabbitMqExtensions
                 cfg.UseRawJsonSerializer(RawSerializerOptions.AnyMessageType);
 
                 // Connect automatic error logging observer for failed consumers
-                cfg.ConnectConsumeObserver(new HPK.Core.Messaging.Observers.PlatformConsumeErrorObserver());
+                cfg.ConnectConsumeObserver(new ICOT.Core.Messaging.Observers.PlatformConsumeErrorObserver());
 
                 // Configure standard durability etc automatically.
                 cfg.ConfigureEndpoints(context);

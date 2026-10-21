@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace HPK.Core.JsonApi;
+namespace ICOT.Core.JsonApi;
 
 /// <summary>
 /// A standardized paginated result container that integrates seamlessly with ApiResponseFilter.

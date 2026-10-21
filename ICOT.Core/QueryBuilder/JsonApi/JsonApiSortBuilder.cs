@@ -4,7 +4,7 @@ using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Reflection;
 
-namespace HPK.Core.JsonApi;
+namespace ICOT.Core.JsonApi;
 
 /// <summary>
 /// Responsible for building dynamic LINQ sort expressions and validating JSON:API sort parameters.

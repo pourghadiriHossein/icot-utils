@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace HPK.Core.Events;
+namespace ICOT.Core.Events;
 
 public class LogErrorEvent
 {

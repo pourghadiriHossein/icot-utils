@@ -3,7 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace HPK.Core.Utils.Services;
+namespace ICOT.Core.Utils.Services;
 
 /// <summary>
 /// Abstraction for symmetric encryption and decryption operations (DIP).

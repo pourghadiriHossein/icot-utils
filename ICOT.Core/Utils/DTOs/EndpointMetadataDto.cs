@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace HPK.Core.Utils.DTOs;
+namespace ICOT.Core.Utils.DTOs;
 
 public class EndpointMetadataDto
 {

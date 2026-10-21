@@ -12,7 +12,7 @@ using System.Text.Json.Nodes;
 using Microsoft.OpenApi;
 using System.Net.Http;
 
-namespace HPK.Core.Extensions;
+namespace ICOT.Core.Extensions;
 
 public static class PlatformApiExtensions
 {
@@ -147,7 +147,7 @@ public static class PlatformApiExtensions
         // Enforce x-platform / x-workspace tenant boundaries for backend services only
         if (cleanServiceName != "gateway")
         {
-            app.UseMiddleware<HPK.Core.Middlewares.TenantValidationMiddleware>();
+            app.UseMiddleware<ICOT.Core.Middlewares.TenantValidationMiddleware>();
         }
 
         if (app.Environment.IsDevelopment())
@@ -172,32 +172,32 @@ public static class PlatformApiExtensions
 
     public static IServiceCollection AddPlatformApiStandard(this IServiceCollection services)
     {
-        services.AddTransient<HPK.Core.Middlewares.RequestIdDelegatingHandler>();
-        services.AddHttpClient("").AddHttpMessageHandler<HPK.Core.Middlewares.RequestIdDelegatingHandler>();
+        services.AddTransient<ICOT.Core.Middlewares.RequestIdDelegatingHandler>();
+        services.AddHttpClient("").AddHttpMessageHandler<ICOT.Core.Middlewares.RequestIdDelegatingHandler>();
 
         // Core SOLID Abstractions
-        services.AddSingleton<HPK.Core.Utils.Services.IEncryptionService, HPK.Core.Utils.Services.AesEncryptionService>();
-        services.AddSingleton<HPK.Core.Utils.Services.IUserContextProvider, HPK.Core.Utils.Services.HttpContextUserContextProvider>();
-        services.AddSingleton<HPK.Core.Messaging.Services.IPlatformErrorPublisher>(sp =>
-            new HPK.Core.Messaging.Services.MassTransitErrorPublisher(sp, sp.GetService<Microsoft.Extensions.Logging.ILogger<HPK.Core.Messaging.Services.MassTransitErrorPublisher>>()));
-        services.AddSingleton<HPK.Core.Middlewares.IExceptionResponseMapper, HPK.Core.Middlewares.DefaultExceptionResponseMapper>();
-        services.AddSingleton<HPK.Core.Middlewares.ITenantPolicyValidator, HPK.Core.Middlewares.DefaultTenantPolicyValidator>();
-        services.AddSingleton<HPK.Core.Behaviors.ILogPayloadSanitizer, HPK.Core.Behaviors.DefaultLogPayloadSanitizer>();
-        services.AddSingleton<HPK.Core.Filters.IPaginationMetadataExtractor, HPK.Core.Filters.DefaultPaginationMetadataExtractor>();
+        services.AddSingleton<ICOT.Core.Utils.Services.IEncryptionService, ICOT.Core.Utils.Services.AesEncryptionService>();
+        services.AddSingleton<ICOT.Core.Utils.Services.IUserContextProvider, ICOT.Core.Utils.Services.HttpContextUserContextProvider>();
+        services.AddSingleton<ICOT.Core.Messaging.Services.IPlatformErrorPublisher>(sp =>
+            new ICOT.Core.Messaging.Services.MassTransitErrorPublisher(sp, sp.GetService<Microsoft.Extensions.Logging.ILogger<ICOT.Core.Messaging.Services.MassTransitErrorPublisher>>()));
+        services.AddSingleton<ICOT.Core.Middlewares.IExceptionResponseMapper, ICOT.Core.Middlewares.DefaultExceptionResponseMapper>();
+        services.AddSingleton<ICOT.Core.Middlewares.ITenantPolicyValidator, ICOT.Core.Middlewares.DefaultTenantPolicyValidator>();
+        services.AddSingleton<ICOT.Core.Behaviors.ILogPayloadSanitizer, ICOT.Core.Behaviors.DefaultLogPayloadSanitizer>();
+        services.AddSingleton<ICOT.Core.Filters.IPaginationMetadataExtractor, ICOT.Core.Filters.DefaultPaginationMetadataExtractor>();
 
-        services.AddScoped<HPK.Core.Utils.Services.IInternalValidationService, HPK.Core.Utils.Services.InternalValidationService>();
-        services.AddScoped<HPK.Core.Utils.Services.IWorkspaceValidationService>(sp => sp.GetRequiredService<HPK.Core.Utils.Services.IInternalValidationService>());
-        services.AddScoped<HPK.Core.Utils.Services.IAccountValidationService>(sp => sp.GetRequiredService<HPK.Core.Utils.Services.IInternalValidationService>());
+        services.AddScoped<ICOT.Core.Utils.Services.IInternalValidationService, ICOT.Core.Utils.Services.InternalValidationService>();
+        services.AddScoped<ICOT.Core.Utils.Services.IWorkspaceValidationService>(sp => sp.GetRequiredService<ICOT.Core.Utils.Services.IInternalValidationService>());
+        services.AddScoped<ICOT.Core.Utils.Services.IAccountValidationService>(sp => sp.GetRequiredService<ICOT.Core.Utils.Services.IInternalValidationService>());
 
         services.AddGrpc();
         // 1. Add Global Exception Handler
-        services.AddExceptionHandler<HPK.Core.Middlewares.GlobalExceptionHandler>();
+        services.AddExceptionHandler<ICOT.Core.Middlewares.GlobalExceptionHandler>();
         services.AddProblemDetails();
 
         // 2. Configure Controllers to use the ApiResponseFilter and force application/json
         services.AddControllers(options => 
         {
-            options.Filters.Add<HPK.Core.Filters.ApiResponseFilter>();
+            options.Filters.Add<ICOT.Core.Filters.ApiResponseFilter>();
             options.Filters.Add(new Microsoft.AspNetCore.Mvc.ProducesAttribute("application/json"));
         })
         .AddJsonOptions(options =>
@@ -215,7 +215,7 @@ public static class PlatformApiExtensions
                     .FirstOrDefault();
 
                 var message = errors ?? "One or more validation errors occurred.";
-                var response = HPK.Core.Utils.Responses.ApiResponse.Error(422, message);
+                var response = ICOT.Core.Utils.Responses.ApiResponse.Error(422, message);
                 return new Microsoft.AspNetCore.Mvc.ObjectResult(response)
                 {
                     StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status422UnprocessableEntity
@@ -225,7 +225,7 @@ public static class PlatformApiExtensions
         
         services.AddHttpContextAccessor();
         // 3. Register global MediatR behavior for logging
-        services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(HPK.Core.Behaviors.LogAddBehavior<,>));
+        services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ICOT.Core.Behaviors.LogAddBehavior<,>));
         services.AddOpenApi(options =>
         {
             options.AddOperationTransformer((operation, context, cancellationToken) =>

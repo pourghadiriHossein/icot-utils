@@ -1,7 +1,7 @@
 using System;
 using Microsoft.AspNetCore.Http;
 
-namespace HPK.Core.Utils.Services;
+namespace ICOT.Core.Utils.Services;
 
 /// <summary>
 /// Abstraction for accessing current user, tenant, and platform execution context (DIP).

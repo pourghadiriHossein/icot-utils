@@ -5,7 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json.Serialization;
 
-namespace HPK.Core.JsonApi;
+namespace ICOT.Core.JsonApi;
 
 /// <summary>
 /// Responsible for dynamically shaping and projecting data based on JSON:API ?select fields.

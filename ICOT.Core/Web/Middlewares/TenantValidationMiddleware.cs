@@ -5,9 +5,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.WebUtilities;
 using System.Text.Json;
-using HPK.Core.Utils.Responses;
+using ICOT.Core.Utils.Responses;
 
-namespace HPK.Core.Middlewares;
+namespace ICOT.Core.Middlewares;
 
 public class TenantValidationMiddleware
 {

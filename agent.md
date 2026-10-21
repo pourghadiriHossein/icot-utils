@@ -46,7 +46,7 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
    - **Liskov Substitution Principle (LSP)**: Implementations must be fully substitutable for their abstractions without contract breakage (e.g. `IUserContextProvider` substitutable in background workers and tests).
    - **Interface Segregation Principle (ISP)**: Clients must never be forced to depend on interfaces they do not use (e.g. segregated `IWorkspaceValidationService` and `IAccountValidationService`).
    - **Dependency Inversion Principle (DIP)**: High-level modules must never depend on low-level implementation details or framework-specific statics. Both must depend on abstractions (e.g., `IUserContextProvider`, `IEncryptionService`, `IPlatformErrorPublisher`).
-   - **STRICT MANDATE**: For EVERY future change, addition, refactor, or deletion in `HPK.Core`, the agent MUST audit the changes against SOLID principles. If ANY violation is detected, it MUST be resolved and refactored before release.
+   - **STRICT MANDATE**: For EVERY future change, addition, refactor, or deletion in `ICOT.Core`, the agent MUST audit the changes against SOLID principles. If ANY violation is detected, it MUST be resolved and refactored before release.
 
 - **Standardized HTTP Status Codes**: All API controllers MUST adhere to the following network HTTP status codes:
   - Read All (GET): `200 OK`
@@ -57,7 +57,7 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
   - Delete (DELETE): `200 OK` or `204 No Content`
   Use `StatusCode(201, ...)` for creations.
 
-- **JSON:API Query Standard (Modular Architecture)**: All `index`/`list` endpoints MUST use `[FromQuery] JsonApiQueryOptions options` from `HPK.Core.JsonApi` and utilize `.ApplyJsonApiAsync(options)` in their CQRS Handlers to support standardized JSON:API querying, filtering, sorting, and pagination.
+- **JSON:API Query Standard (Modular Architecture)**: All `index`/`list` endpoints MUST use `[FromQuery] JsonApiQueryOptions options` from `ICOT.Core.JsonApi` and utilize `.ApplyJsonApiAsync(options)` in their CQRS Handlers to support standardized JSON:API querying, filtering, sorting, and pagination.
   - Architecture & SRP Compliance: `JsonApiExtensions.cs` acts as a clean, lightweight facade (~60 lines) delegating specialized responsibilities to dedicated single-purpose classes:
     - `JsonApiFilterBuilder.cs`: Dynamic LINQ expression trees, multilingual JSONB dictionary search (`ILIKE`), null comparisons (`null`/`!null`), and `$or` parameter parsing.
     - `JsonApiSortBuilder.cs`: Sort field validation against entity properties, direction parsing (`-`), and fallback ordering (`CreatedAt desc` / `Id desc`).
@@ -69,10 +69,10 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
   - Dynamic Field Selection & Shaping (`?select`): Managed globally by `ApiResponseFilter` and `JsonApiExtensions.ShapeData` (delegating to `JsonApiDataShaper`). Supports inclusion (`?select=id,service`), exclusion (`?select=-meta,-message`), and nested dot-notation (`?select=profile,-profile.age`), seamlessly handling data envelope dictionaries (`{"error_logs": [...]}`), individual DTOs, and direct collections with case-insensitivity, snake_case conversion, and `[JsonPropertyName]` preservation.
 
 ### Mandatory Logging
-- Every MediatR Command or Query must implement `HPK.Core.Interfaces.ILoggableRequest` to auto-publish `log:add` to RabbitMQ. Specify `LogService`, `LogTable`, `LogModel`, and `LogType` (`command` or `query`).
+- Every MediatR Command or Query must implement `ICOT.Core.Interfaces.ILoggableRequest` to auto-publish `log:add` to RabbitMQ. Specify `LogService`, `LogTable`, `LogModel`, and `LogType` (`command` or `query`).
 
 ### 🚨 Centralized Platform Error Logging (`log:error`)
-- **Event Contract (`LogErrorEvent`)**: Defined in `HPK.Core.Events.LogErrorEvent`. Uses `Event = "log:error"` with lowest priority (`Priority = 1`), dispatched directly to `ACTION_SERVICE_QUEUE` (`icot_action_queue`).
+- **Event Contract (`LogErrorEvent`)**: Defined in `ICOT.Core.Events.LogErrorEvent`. Uses `Event = "log:error"` with lowest priority (`Priority = 1`), dispatched directly to `ACTION_SERVICE_QUEUE` (`icot_action_queue`).
 - **HTTP Exception Interception**: `GlobalExceptionHandler` intercepts all unhandled HTTP exceptions across all microservices, formats the response, and asynchronously fire-and-forgets a `LogErrorEvent` containing the originating service name, exception message, HTTP method, path, query string, trace ID, headers (`x-account`, `x-workspace`), and stack trace.
 - **Queue Consumer Exception Interception**: `PlatformConsumeErrorObserver` is automatically registered in `AddPlatformRabbitMq`. It listens to `ConsumeFault<T>` across all MassTransit consumers and publishes a `LogErrorEvent` with the faulted consumer type, message type, and exception details, safely skipping recursion if `T` is `LogErrorEvent`.
 

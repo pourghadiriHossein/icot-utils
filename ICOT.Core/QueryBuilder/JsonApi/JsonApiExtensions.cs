@@ -3,7 +3,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace HPK.Core.JsonApi;
+namespace ICOT.Core.JsonApi;
 
 /// <summary>
 /// Provides high-level extension methods for applying JSON:API filtering, sorting, includes, pagination, and data shaping.

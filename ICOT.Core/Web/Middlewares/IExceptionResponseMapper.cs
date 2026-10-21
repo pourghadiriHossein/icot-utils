@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 
-namespace HPK.Core.Middlewares;
+namespace ICOT.Core.Middlewares;
 
 public record ExceptionMappingResult(int StatusCode, string Message, object? Details);
 

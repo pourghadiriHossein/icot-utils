@@ -6,7 +6,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 
-namespace HPK.Core.JsonApi;
+namespace ICOT.Core.JsonApi;
 
 /// <summary>
 /// Responsible for building dynamic LINQ filter expressions and translating JSON:API filter parameters.

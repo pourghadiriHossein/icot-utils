@@ -1,7 +1,7 @@
 using System;
 using Microsoft.AspNetCore.Http;
 
-namespace HPK.Core.Middlewares;
+namespace ICOT.Core.Middlewares;
 
 public record TenantValidationResult(
     bool IsAllowed,

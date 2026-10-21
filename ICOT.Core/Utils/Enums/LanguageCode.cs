@@ -1,6 +1,6 @@
 using System.Linq;
 
-namespace HPK.Core.Utils.Enums;
+namespace ICOT.Core.Utils.Enums;
 
 public static class LanguageCode
 {

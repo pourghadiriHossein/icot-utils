@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using DotNetEnv;
 
-namespace HPK.Core.Extensions;
+namespace ICOT.Core.Extensions;
 
 public static class PlatformDbExtensions
 {
@@ -16,9 +16,9 @@ public static class PlatformDbExtensions
         where TContext : DbContext
     {
         services.AddHttpContextAccessor();
-        services.AddSingleton<HPK.Core.Utils.Services.IUserContextProvider, HPK.Core.Utils.Services.HttpContextUserContextProvider>();
-        services.AddSingleton<HPK.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>(sp =>
-            new HPK.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor(sp.GetRequiredService<HPK.Core.Utils.Services.IUserContextProvider>()));
+        services.AddSingleton<ICOT.Core.Utils.Services.IUserContextProvider, ICOT.Core.Utils.Services.HttpContextUserContextProvider>();
+        services.AddSingleton<ICOT.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>(sp =>
+            new ICOT.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor(sp.GetRequiredService<ICOT.Core.Utils.Services.IUserContextProvider>()));
         // Load .env file (assuming it is in the root directory)
         var rootDir = Directory.GetCurrentDirectory();
         while (!File.Exists(Path.Combine(rootDir, ".env")) && Directory.GetParent(rootDir) != null)
@@ -76,7 +76,7 @@ public static class PlatformDbExtensions
         services.AddDbContextPool<TContext>((sp, options) =>
         {
             options.UseNpgsql(dataSource);
-            options.AddInterceptors(sp.GetRequiredService<HPK.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>());
+            options.AddInterceptors(sp.GetRequiredService<ICOT.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>());
             options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
         }, poolSize: 1024);
 

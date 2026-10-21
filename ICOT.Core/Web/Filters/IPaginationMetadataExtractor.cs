@@ -1,7 +1,7 @@
 using System;
 using System.Reflection;
 
-namespace HPK.Core.Filters;
+namespace ICOT.Core.Filters;
 
 public record PaginationExtractionResult(object? PayloadData, object? MetaData);
 

@@ -1,7 +1,7 @@
 using System;
-using HPK.Core.Utils.Enums;
+using ICOT.Core.Utils.Enums;
 
-namespace HPK.Core.Utils.Attributes;
+namespace ICOT.Core.Utils.Attributes;
 
 /// <summary>
 /// Declarative metadata attribute for automatic endpoint registration, routing, permissions, and scopes across ApiGateway.

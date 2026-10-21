@@ -5,11 +5,11 @@ using System.Threading.Tasks;
 using MassTransit;
 using MediatR;
 using Microsoft.AspNetCore.Http;
-using HPK.Core.Events;
-using HPK.Core.Interfaces;
-using HPK.Core.Utils.Enums;
+using ICOT.Core.Events;
+using ICOT.Core.Interfaces;
+using ICOT.Core.Utils.Enums;
 
-namespace HPK.Core.Behaviors;
+namespace ICOT.Core.Behaviors;
 
 public class LogAddBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse> where TRequest : notnull
 {

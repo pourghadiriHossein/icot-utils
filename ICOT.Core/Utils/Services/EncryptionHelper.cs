@@ -1,4 +1,4 @@
-namespace HPK.Core.Utils.Services;
+namespace ICOT.Core.Utils.Services;
 
 /// <summary>
 /// Static facade for <see cref="IEncryptionService"/> providing backward compatibility across existing services.

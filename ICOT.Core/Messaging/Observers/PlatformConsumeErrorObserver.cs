@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using MassTransit;
 using Microsoft.Extensions.Logging;
-using HPK.Core.Events;
-using HPK.Core.Extensions;
-using HPK.Core.Messaging.Services;
+using ICOT.Core.Events;
+using ICOT.Core.Extensions;
+using ICOT.Core.Messaging.Services;
 
-namespace HPK.Core.Messaging.Observers;
+namespace ICOT.Core.Messaging.Observers;
 
 public class PlatformConsumeErrorObserver : IConsumeObserver
 {

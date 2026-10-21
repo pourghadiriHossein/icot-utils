@@ -2,10 +2,10 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using HPK.Core.Utils.Responses;
-using HPK.Core.Middlewares;
+using ICOT.Core.Utils.Responses;
+using ICOT.Core.Middlewares;
 
-namespace HPK.Core.Filters;
+namespace ICOT.Core.Filters;
 
 /// <summary>
 /// Enforces the universal tenant rule at the MVC action level.

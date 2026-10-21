@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.AspNetCore.Http;
 
-namespace HPK.Core.Behaviors;
+namespace ICOT.Core.Behaviors;
 
 /// <summary>
 /// Abstraction for sanitizing requests and responses before logging into queues or storage (SRP).

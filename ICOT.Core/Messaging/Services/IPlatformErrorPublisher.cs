@@ -5,10 +5,10 @@ using System.Threading.Tasks;
 using MassTransit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using HPK.Core.Events;
-using HPK.Core.Extensions;
+using ICOT.Core.Events;
+using ICOT.Core.Extensions;
 
-namespace HPK.Core.Messaging.Services;
+namespace ICOT.Core.Messaging.Services;
 
 /// <summary>
 /// Abstraction for publishing platform error events to message queues (DIP & SRP).

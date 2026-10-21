@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 
-namespace HPK.Core.Middlewares;
+namespace ICOT.Core.Middlewares;
 
 public class RequestIdDelegatingHandler : DelegatingHandler
 {

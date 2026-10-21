@@ -7,9 +7,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using HPK.Core.Utils.Services;
+using ICOT.Core.Utils.Services;
 
-namespace HPK.Core.Postgres.Interceptors;
+namespace ICOT.Core.Postgres.Interceptors;
 
 public class PlatformSaveChangesInterceptor : SaveChangesInterceptor
 {

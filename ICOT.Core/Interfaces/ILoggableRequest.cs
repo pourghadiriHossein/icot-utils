@@ -1,7 +1,7 @@
 using System;
-using HPK.Core.Utils.Enums;
+using ICOT.Core.Utils.Enums;
 
-namespace HPK.Core.Interfaces;
+namespace ICOT.Core.Interfaces;
 
 public interface ILoggableRequest
 {

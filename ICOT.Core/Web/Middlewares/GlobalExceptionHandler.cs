@@ -3,16 +3,16 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using HPK.Core.Utils.Responses;
-using HPK.Core.Extensions;
-using HPK.Core.Messaging.Services;
+using ICOT.Core.Utils.Responses;
+using ICOT.Core.Extensions;
+using ICOT.Core.Messaging.Services;
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace HPK.Core.Middlewares;
+namespace ICOT.Core.Middlewares;
 
 /// <summary>
 /// A global exception handler that catches unhandled exceptions and formats them into the standard <see cref="ApiResponse{T}"/> JSON format.

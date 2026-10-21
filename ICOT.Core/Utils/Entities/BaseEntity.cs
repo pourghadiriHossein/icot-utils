@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace HPK.Core.Utils.Entities;
+namespace ICOT.Core.Utils.Entities;
 
 /// <summary>
 /// Base entity containing common properties for all domain models across the platform.

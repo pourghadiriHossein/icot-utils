@@ -1,4 +1,4 @@
-namespace HPK.Core.Utils.Enums;
+namespace ICOT.Core.Utils.Enums;
 
 public enum PlatformService
 {

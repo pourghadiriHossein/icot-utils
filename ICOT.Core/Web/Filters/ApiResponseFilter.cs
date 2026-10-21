@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using HPK.Core.Utils.Responses;
+using ICOT.Core.Utils.Responses;
 using System.Threading.Tasks;
 
-namespace HPK.Core.Filters;
+namespace ICOT.Core.Filters;
 
 /// <summary>
 /// Intercepts successful API responses and wraps them in a standardized <see cref="ApiResponse{T}"/> format.
@@ -44,7 +44,7 @@ public class ApiResponseFilter : IAsyncResultFilter
                         var originalData = dataProp.GetValue(objectResult.Value);
                         if (originalData != null)
                         {
-                            var shapedData = HPK.Core.JsonApi.JsonApiExtensions.ShapeData(originalData, selectString);
+                            var shapedData = ICOT.Core.JsonApi.JsonApiExtensions.ShapeData(originalData, selectString);
 
                             var successProp = valueType.GetProperty("Success");
                             var codeProp = valueType.GetProperty("Code");
@@ -71,7 +71,7 @@ public class ApiResponseFilter : IAsyncResultFilter
             {
                 if (!string.IsNullOrWhiteSpace(selectString) && nonGenericApiResponse.Data != null)
                 {
-                    nonGenericApiResponse.Data = HPK.Core.JsonApi.JsonApiExtensions.ShapeData(nonGenericApiResponse.Data, selectString);
+                    nonGenericApiResponse.Data = ICOT.Core.JsonApi.JsonApiExtensions.ShapeData(nonGenericApiResponse.Data, selectString);
                 }
 
                 await next();
@@ -84,7 +84,7 @@ public class ApiResponseFilter : IAsyncResultFilter
             // Apply Dynamic Select Shaping if ?select is provided
             if (!string.IsNullOrWhiteSpace(selectString) && payloadData != null)
             {
-                payloadData = HPK.Core.JsonApi.JsonApiExtensions.ShapeData(payloadData, selectString);
+                payloadData = ICOT.Core.JsonApi.JsonApiExtensions.ShapeData(payloadData, selectString);
             }
 
             var statusCode = objectResult.StatusCode ?? context.HttpContext.Response.StatusCode;

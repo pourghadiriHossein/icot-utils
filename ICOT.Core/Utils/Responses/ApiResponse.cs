@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace HPK.Core.Utils.Responses;
+namespace ICOT.Core.Utils.Responses;
 
 /// <summary>
 /// A standardized wrapper for all API responses, ensuring uniform JSON output across all microservices.
