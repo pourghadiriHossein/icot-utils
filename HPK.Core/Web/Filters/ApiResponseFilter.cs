@@ -11,6 +11,13 @@ namespace HPK.Core.Filters;
 /// </summary>
 public class ApiResponseFilter : IAsyncResultFilter
 {
+    private readonly IPaginationMetadataExtractor _paginationExtractor;
+
+    public ApiResponseFilter(IPaginationMetadataExtractor? paginationExtractor = null)
+    {
+        _paginationExtractor = paginationExtractor ?? DefaultPaginationMetadataExtractor.Instance;
+    }
+
     public async Task OnResultExecutionAsync(ResultExecutingContext context, ResultExecutionDelegate next)
     {
         // Enforce application/json for all responses
@@ -71,43 +78,8 @@ public class ApiResponseFilter : IAsyncResultFilter
                 return;
             }
 
-            // Detect if a paginated object (e.g. PagedResult<T>) is returned to extract Meta automatically
-            object? metaData = null;
-            object? payloadData = objectResult.Value;
-
-            if (objectResult.Value != null)
-            {
-                var valueType = objectResult.Value.GetType();
-                if (valueType.IsGenericType && (valueType.GetGenericTypeDefinition().Name.Contains("Paged") || valueType.GetGenericTypeDefinition().Name.Contains("Pagination")))
-                {
-                    // If it's a Paged collection, extract Data and Meta (TotalCount, etc)
-                    var countProp = valueType.GetProperty("TotalCount") ?? valueType.GetProperty("Count");
-                    var dataProp = valueType.GetProperty("Data") ?? valueType.GetProperty("Items");
-                    
-                    if (countProp != null && dataProp != null)
-                    {
-                        var totalCount = countProp.GetValue(objectResult.Value);
-                        var currentPageProp = valueType.GetProperty("CurrentPage");
-                        var lastPageProp = valueType.GetProperty("LastPage");
-                        var perPageProp = valueType.GetProperty("PerPage");
-                        
-                        object? currentPage = currentPageProp?.GetValue(objectResult.Value);
-                        object? lastPage = lastPageProp?.GetValue(objectResult.Value);
-                        object? perPage = perPageProp?.GetValue(objectResult.Value);
-
-                        payloadData = dataProp.GetValue(objectResult.Value);
-                        
-                        if (currentPage != null) 
-                        {
-                            metaData = new { totalCount, currentPage, lastPage, perPage };
-                        }
-                        else 
-                        {
-                            metaData = new { totalCount };
-                        }
-                    }
-                }
-            }
+            // Extract pagination metadata and payload data via IPaginationMetadataExtractor (SRP)
+            var (payloadData, metaData) = _paginationExtractor.Extract(objectResult.Value);
 
             // Apply Dynamic Select Shaping if ?select is provided
             if (!string.IsNullOrWhiteSpace(selectString) && payloadData != null)

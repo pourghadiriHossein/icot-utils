@@ -174,7 +174,20 @@ public static class PlatformApiExtensions
     {
         services.AddTransient<HPK.Core.Middlewares.RequestIdDelegatingHandler>();
         services.AddHttpClient("").AddHttpMessageHandler<HPK.Core.Middlewares.RequestIdDelegatingHandler>();
+
+        // Core SOLID Abstractions
+        services.AddSingleton<HPK.Core.Utils.Services.IEncryptionService, HPK.Core.Utils.Services.AesEncryptionService>();
+        services.AddSingleton<HPK.Core.Utils.Services.IUserContextProvider, HPK.Core.Utils.Services.HttpContextUserContextProvider>();
+        services.AddSingleton<HPK.Core.Messaging.Services.IPlatformErrorPublisher, HPK.Core.Messaging.Services.MassTransitErrorPublisher>();
+        services.AddSingleton<HPK.Core.Middlewares.IExceptionResponseMapper, HPK.Core.Middlewares.DefaultExceptionResponseMapper>();
+        services.AddSingleton<HPK.Core.Middlewares.ITenantPolicyValidator, HPK.Core.Middlewares.DefaultTenantPolicyValidator>();
+        services.AddSingleton<HPK.Core.Behaviors.ILogPayloadSanitizer, HPK.Core.Behaviors.DefaultLogPayloadSanitizer>();
+        services.AddSingleton<HPK.Core.Filters.IPaginationMetadataExtractor, HPK.Core.Filters.DefaultPaginationMetadataExtractor>();
+
         services.AddScoped<HPK.Core.Utils.Services.IInternalValidationService, HPK.Core.Utils.Services.InternalValidationService>();
+        services.AddScoped<HPK.Core.Utils.Services.IWorkspaceValidationService>(sp => sp.GetRequiredService<HPK.Core.Utils.Services.IInternalValidationService>());
+        services.AddScoped<HPK.Core.Utils.Services.IAccountValidationService>(sp => sp.GetRequiredService<HPK.Core.Utils.Services.IInternalValidationService>());
+
         services.AddGrpc();
         // 1. Add Global Exception Handler
         services.AddExceptionHandler<HPK.Core.Middlewares.GlobalExceptionHandler>();

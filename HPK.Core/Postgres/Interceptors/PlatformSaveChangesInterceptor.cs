@@ -12,11 +12,17 @@ namespace HPK.Core.Postgres.Interceptors;
 
 public class PlatformSaveChangesInterceptor : SaveChangesInterceptor
 {
-    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IUserContextProvider _userContextProvider;
 
-    public PlatformSaveChangesInterceptor(IHttpContextAccessor httpContextAccessor)
+    public PlatformSaveChangesInterceptor(IUserContextProvider userContextProvider)
     {
-        _httpContextAccessor = httpContextAccessor;
+        _userContextProvider = userContextProvider;
+    }
+
+    // Backward-compatible constructor for existing callers
+    public PlatformSaveChangesInterceptor(IHttpContextAccessor httpContextAccessor)
+        : this(new HttpContextUserContextProvider(httpContextAccessor))
+    {
     }
 
     public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
@@ -32,8 +38,7 @@ public class PlatformSaveChangesInterceptor : SaveChangesInterceptor
 
         if (!entries.Any()) return result;
 
-        var accountIdHeader = _httpContextAccessor.HttpContext?.Request.Headers["x-account"].ToString();
-        var currentAccountId = string.IsNullOrWhiteSpace(accountIdHeader) ? (string?)null : accountIdHeader;
+        var currentAccountId = _userContextProvider.CurrentAccountId;
 
         foreach (var entry in entries)
         {

@@ -1,10 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using MassTransit;
@@ -20,13 +15,16 @@ public class LogAddBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, T
 {
     private readonly ISendEndpointProvider _sendEndpointProvider;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ILogPayloadSanitizer _sanitizer;
 
-    private static readonly JsonSerializerOptions _logJsonOptions = CreateLogJsonOptions();
-
-    public LogAddBehavior(ISendEndpointProvider sendEndpointProvider, IHttpContextAccessor httpContextAccessor)
+    public LogAddBehavior(
+        ISendEndpointProvider sendEndpointProvider,
+        IHttpContextAccessor httpContextAccessor,
+        ILogPayloadSanitizer? sanitizer = null)
     {
         _sendEndpointProvider = sendEndpointProvider;
         _httpContextAccessor = httpContextAccessor;
+        _sanitizer = sanitizer ?? DefaultLogPayloadSanitizer.Instance;
     }
 
     public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken cancellationToken)
@@ -52,13 +50,15 @@ public class LogAddBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, T
                 return null;
             }
 
-            // Capture sanitized request and response for Meta
-            var metaData = new Dictionary<string, object?>();
-            metaData["request"] = SanitizeForLog(request);
+            // Capture sanitized request and response for Meta via ILogPayloadSanitizer (SRP)
+            var metaData = new Dictionary<string, object?>
+            {
+                ["request"] = _sanitizer.Sanitize(request)
+            };
 
             if (response != null)
             {
-                metaData["response"] = SanitizeForLog(response);
+                metaData["response"] = _sanitizer.Sanitize(response);
             }
 
             var logEvent = new LogAddEvent
@@ -66,21 +66,23 @@ public class LogAddBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, T
                 Event = "log:add",
                 Priority = 1,
                 Data = new LogAddEventData
-            {
-                RequestId = GetHeaderGuid("x-request"),
-                QueueId = GetHeaderGuid("x-queue"),
-                WorkspaceId = GetHeaderGuid("x-workspace"),
-                AccountId = GetHeaderGuid("x-account"),
-                TraceId = GetHeaderGuid("x-trace-id"),
-                Service = loggable.LogService.ToLowerString(),
-                Table = loggable.LogTable,
-                Model = loggable.LogModel.ToLowerInvariant(),
-                Type = loggable.LogType.ToLowerString(),
-                Meta = metaData!
-            }
-        };
+                {
+                    RequestId = GetHeaderGuid("x-request"),
+                    QueueId = GetHeaderGuid("x-queue"),
+                    WorkspaceId = GetHeaderGuid("x-workspace"),
+                    AccountId = GetHeaderGuid("x-account"),
+                    TraceId = GetHeaderGuid("x-trace-id"),
+                    Service = loggable.LogService.ToLowerString(),
+                    Table = loggable.LogTable,
+                    Model = loggable.LogModel.ToLowerInvariant(),
+                    Type = loggable.LogType.ToLowerString(),
+                    Meta = metaData!
+                }
+            };
 
-            var queueName = Environment.GetEnvironmentVariable("ACTION_SERVICE_QUEUE") ?? "icot_action_queue";
+            var queueName = Environment.GetEnvironmentVariable("ACTION_SERVICE_QUEUE") 
+                         ?? DotNetEnv.Env.GetString("ACTION_SERVICE_QUEUE") 
+                         ?? "icot_action_queue";
             try
             {
                 var sendEndpoint = await _sendEndpointProvider.GetSendEndpoint(new Uri($"queue:{queueName}"));
@@ -94,72 +96,5 @@ public class LogAddBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, T
         }
 
         return response;
-    }
-
-    private static object? SanitizeForLog(object? obj)
-    {
-        if (obj == null) return null;
-
-        var type = obj.GetType();
-        if (IsFileOrStreamType(type) ||
-            type.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IQueryable<>)))
-        {
-            return "[File/Stream/Queryable Omitted]";
-        }
-
-        try
-        {
-            return JsonSerializer.SerializeToElement(obj, _logJsonOptions);
-        }
-        catch
-        {
-            return "[Unserializable Object]";
-        }
-    }
-
-    private static bool IsFileOrStreamType(Type type)
-    {
-        if (typeof(Stream).IsAssignableFrom(type) ||
-            typeof(IFormFile).IsAssignableFrom(type) ||
-            typeof(IFormFileCollection).IsAssignableFrom(type))
-        {
-            return true;
-        }
-
-        if (typeof(System.Collections.IEnumerable).IsAssignableFrom(type) && type.IsGenericType)
-        {
-            var itemType = type.GetGenericArguments().FirstOrDefault();
-            if (itemType != null && (typeof(IFormFile).IsAssignableFrom(itemType) || typeof(Stream).IsAssignableFrom(itemType)))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static JsonSerializerOptions CreateLogJsonOptions()
-    {
-        return new JsonSerializerOptions
-        {
-            ReferenceHandler = ReferenceHandler.IgnoreCycles,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            TypeInfoResolver = new DefaultJsonTypeInfoResolver
-            {
-                Modifiers =
-                {
-                    typeInfo =>
-                    {
-                        foreach (var prop in typeInfo.Properties)
-                        {
-                            if (IsFileOrStreamType(prop.PropertyType))
-                            {
-                                prop.ShouldSerialize = (_, _) => false;
-                            }
-                        }
-                    }
-                }
-            }
-        };
     }
 }

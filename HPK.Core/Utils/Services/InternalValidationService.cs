@@ -10,12 +10,23 @@ using Microsoft.Extensions.Logging;
 
 namespace HPK.Core.Utils.Services;
 
-public interface IInternalValidationService
+public interface IWorkspaceValidationService
 {
     Task<bool> ValidateWorkspacesAsync(IEnumerable<Guid> workspaceIds, CancellationToken cancellationToken = default);
     Task<bool> ValidateWorkspaceAsync(Guid workspaceId, CancellationToken cancellationToken = default);
+}
+
+public interface IAccountValidationService
+{
     Task<bool> ValidateAccountsAsync(IEnumerable<Guid> accountIds, CancellationToken cancellationToken = default);
     Task<bool> ValidateAccountAsync(Guid accountId, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Composite validation interface (ISP). Combines workspace and account validation for backward compatibility.
+/// </summary>
+public interface IInternalValidationService : IWorkspaceValidationService, IAccountValidationService
+{
 }
 
 public class InternalValidationService : IInternalValidationService

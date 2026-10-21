@@ -21,11 +21,36 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
+    - name: Determine Next Package Version (v2.x with rollover at 15)
+      id: get_version
+      run: |
+        LATEST=$(curl -s "https://api.nuget.org/v3-flatcontainer/hpk.core/index.json" | jq -r '.versions[]?' | grep -E '^2\.' | sort -V | tail -n 1 || true)
+        
+        if [ -z "$LATEST" ]; then
+          echo "No 2.x version found on NuGet.org. Starting initial v2 release with: 2.0.1"
+          NEXT_VERSION="2.0.1"
+        else
+          echo "Latest published 2.x version is: $LATEST"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST"
+          PATCH=$(( PATCH + 1 ))
+          
+          # Roll over to next minor when patch reaches 15
+          if [ "$PATCH" -ge 15 ]; then
+            MINOR=$(( MINOR + 1 ))
+            PATCH=1
+          fi
+          
+          NEXT_VERSION="2.${MINOR}.${PATCH}"
+        fi
+        
+        echo "Calculated Target Version: $NEXT_VERSION"
+        echo "version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+
     - name: Restore dependencies
       run: dotnet restore HPK.Core/HPK.Core.csproj
 
     - name: Pack HPK.Core
-      run: dotnet pack HPK.Core/HPK.Core.csproj -c Release -p:PackageVersion=1.0.${{ github.run_number }} -p:ContinuousIntegrationBuild=true -o ./artifacts
+      run: dotnet pack HPK.Core/HPK.Core.csproj -c Release -p:PackageVersion=${{ steps.get_version.outputs.version }} -p:ContinuousIntegrationBuild=true -o ./artifacts
 
     - name: Push packages to NuGet.org
       run: dotnet nuget push ./artifacts/*.nupkg --source "https://api.nuget.org/v3/index.json" --skip-duplicate --api-key ${{secrets.NUGET_API_KEY}}

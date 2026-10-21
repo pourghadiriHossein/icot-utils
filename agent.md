@@ -31,10 +31,22 @@ A critical part of `HPK.Core` is the `TenantValidationMiddleware`. It universall
    ```
    **CRITICAL**: NEVER change this to a hardcoded version (e.g., `1.0.8`) in the microservice `.csproj` files.
 
-2. **Publishing Updates**:
-   When you make changes to `HPK.Core`, the package version goes up automatically. Do NOT manually change `<Version>` in `HPK.Core.csproj`.
+2. **Publishing Updates (v2.x Automated Rollover)**:
+   When you make changes to `HPK.Core`, the package version increments automatically in `publish.yml` under the `2.x.y` track.
+   - Patch increments on each build: `2.0.1` -> `2.0.2` -> ... -> `2.0.14`.
+   - When patch reaches 15, minor increments by 1 and patch resets to 1: `2.0.14` -> `2.1.1` -> ... -> `2.1.14` -> `2.2.1`.
+   Do NOT manually edit `<Version>` in `HPK.Core.csproj`.
 
 3. **Global Impact**: Any change made to `HPK.Core` instantly impacts ALL microservices. Always double-check nullability, dependencies, and performance before modifying core middlewares or filters.
+
+4. **Strict SOLID Principles Compliance (MANDATORY RULE)**:
+   From version 2.0.0 onwards, all code inside `HPK.Core` strictly enforces the five SOLID principles:
+   - **Single Responsibility Principle (SRP)**: Every class, middleware, filter, and behavior MUST have only one reason to change. Data sanitization (`ILogPayloadSanitizer`), transport publishing (`IPlatformErrorPublisher`), metadata extraction (`IPaginationMetadataExtractor`), and exception mapping (`IExceptionResponseMapper`) must remain in dedicated single-purpose classes.
+   - **Open / Closed Principle (OCP)**: Components must be open for extension but closed for modification. Use strategy abstractions (e.g., `IExceptionResponseMapper`, `ITenantPolicyValidator`) rather than hardcoded conditional branches.
+   - **Liskov Substitution Principle (LSP)**: Implementations must be fully substitutable for their abstractions without contract breakage (e.g. `IUserContextProvider` substitutable in background workers and tests).
+   - **Interface Segregation Principle (ISP)**: Clients must never be forced to depend on interfaces they do not use (e.g. segregated `IWorkspaceValidationService` and `IAccountValidationService`).
+   - **Dependency Inversion Principle (DIP)**: High-level modules must never depend on low-level implementation details or framework-specific statics. Both must depend on abstractions (e.g., `IUserContextProvider`, `IEncryptionService`, `IPlatformErrorPublisher`).
+   - **STRICT MANDATE**: For EVERY future change, addition, refactor, or deletion in `HPK.Core`, the agent MUST audit the changes against SOLID principles. If ANY violation is detected, it MUST be resolved and refactored before release.
 
 - **Standardized HTTP Status Codes**: All API controllers MUST adhere to the following network HTTP status codes:
   - Read All (GET): `200 OK`

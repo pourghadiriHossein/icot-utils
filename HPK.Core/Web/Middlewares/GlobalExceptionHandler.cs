@@ -4,7 +4,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using HPK.Core.Utils.Responses;
 using HPK.Core.Extensions;
+using HPK.Core.Messaging.Services;
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,16 +16,25 @@ namespace HPK.Core.Middlewares;
 /// <summary>
 /// A global exception handler that catches unhandled exceptions and formats them into the standard <see cref="ApiResponse{T}"/> JSON format.
 /// Logs the exception using standard .NET ILogger (which binds to Serilog).
+/// Adheres to SRP by delegating mapping to <see cref="IExceptionResponseMapper"/> and queue publishing to <see cref="IPlatformErrorPublisher"/>.
 /// </summary>
 public class GlobalExceptionHandler : IExceptionHandler
 {
     private readonly ILogger<GlobalExceptionHandler> _logger;
     private readonly IHostEnvironment _env;
+    private readonly IExceptionResponseMapper _responseMapper;
+    private readonly IPlatformErrorPublisher _errorPublisher;
 
-    public GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logger, IHostEnvironment env)
+    public GlobalExceptionHandler(
+        ILogger<GlobalExceptionHandler> logger,
+        IHostEnvironment env,
+        IExceptionResponseMapper? responseMapper = null,
+        IPlatformErrorPublisher? errorPublisher = null)
     {
         _logger = logger;
         _env = env;
+        _responseMapper = responseMapper ?? new DefaultExceptionResponseMapper();
+        _errorPublisher = errorPublisher ?? new MassTransitErrorPublisher();
     }
 
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
@@ -31,57 +42,22 @@ public class GlobalExceptionHandler : IExceptionHandler
         // 1. Log the error (Serilog will pick this up)
         _logger.LogError(exception, "An unhandled exception occurred: {Message}", exception.Message);
 
+        var serviceName = PlatformApiExtensions.CurrentServiceName ?? "unknown";
+
         // If it's a gRPC request, let gRPC handle its own trailers and status codes
         if (httpContext.Request.ContentType?.StartsWith("application/grpc", StringComparison.OrdinalIgnoreCase) == true)
         {
-            _ = PublishErrorLogAsync(httpContext, exception);
+            _ = PublishErrorSafelyAsync(httpContext, serviceName, exception, cancellationToken);
             return false;
         }
 
-        // 2. Prepare the standardized response
-        var statusCode = StatusCodes.Status500InternalServerError;
-        var message = "An internal server error occurred.";
-
-        if (exception is ArgumentException)
-        {
-            statusCode = StatusCodes.Status422UnprocessableEntity;
-            message = exception.Message;
-        }
-        else if (exception is KeyNotFoundException)
-        {
-            statusCode = StatusCodes.Status404NotFound;
-            message = exception.Message;
-        }
-        else if (exception is InvalidOperationException)
-        {
-            statusCode = StatusCodes.Status409Conflict;
-            message = exception.Message;
-        }
-        else if (exception is UnauthorizedAccessException)
-        {
-            statusCode = StatusCodes.Status401Unauthorized;
-            message = exception.Message;
-        }
-
-        object? exceptionDetails = null;
-
-        if (_env.IsDevelopment())
-        {
-            // Only expose stack trace details in development
-            exceptionDetails = new
-            {
-                Type = exception.GetType().Name,
-                exception.Message,
-                exception.StackTrace
-            };
-            message = exception.Message;
-        }
-
-        var apiResponse = ApiResponse.Error(statusCode, message, exceptionDetails);
+        // 2. Prepare the standardized response via IExceptionResponseMapper (SRP & OCP)
+        var mapping = _responseMapper.Map(exception, _env.IsDevelopment());
+        var apiResponse = ApiResponse.Error(mapping.StatusCode, mapping.Message, mapping.Details);
 
         // 3. Write JSON response
         httpContext.Response.ContentType = "application/json";
-        httpContext.Response.StatusCode = statusCode;
+        httpContext.Response.StatusCode = mapping.StatusCode;
 
         var jsonOptions = new JsonSerializerOptions
         {
@@ -92,22 +68,16 @@ public class GlobalExceptionHandler : IExceptionHandler
         await httpContext.Response.WriteAsJsonAsync(apiResponse, jsonOptions, cancellationToken);
 
         // 4. Publish log:error event to ACTION_SERVICE_QUEUE (fire-and-forget safe background task)
-        _ = PublishErrorLogAsync(httpContext, exception);
+        _ = PublishErrorSafelyAsync(httpContext, serviceName, exception, cancellationToken);
 
         // Return true to indicate the exception has been handled
         return true;
     }
 
-    private async Task PublishErrorLogAsync(HttpContext httpContext, Exception exception)
+    private async Task PublishErrorSafelyAsync(HttpContext httpContext, string serviceName, Exception exception, CancellationToken cancellationToken)
     {
         try
         {
-            var sendEndpointProvider = httpContext.RequestServices.GetService(typeof(MassTransit.ISendEndpointProvider)) as MassTransit.ISendEndpointProvider;
-            if (sendEndpointProvider == null) return;
-
-            var queueName = Environment.GetEnvironmentVariable("ACTION_SERVICE_QUEUE") ?? DotNetEnv.Env.GetString("ACTION_SERVICE_QUEUE") ?? "icot_action_queue";
-            var serviceName = PlatformApiExtensions.CurrentServiceName ?? "unknown";
-
             // Prevent recursion if action-service error-logs endpoint itself fails
             if (serviceName == "action" && httpContext.Request.Path.Value?.Contains("error-logs") == true)
                 return;
@@ -127,20 +97,18 @@ public class GlobalExceptionHandler : IExceptionHandler
                 ["client_ip"] = httpContext.Request.Headers["x-forwarded-ip"].ToString() is { Length: > 0 } ip ? ip : httpContext.Connection.RemoteIpAddress?.ToString()
             };
 
-            var errorEvent = new HPK.Core.Events.LogErrorEvent
+            // Use the injected error publisher, or resolve one bound to the request scope if needed
+            var publisher = _errorPublisher;
+            if (httpContext.RequestServices.GetService(typeof(IPlatformErrorPublisher)) is IPlatformErrorPublisher scopedPublisher)
             {
-                Event = "log:error",
-                Priority = 1,
-                Data = new HPK.Core.Events.LogErrorEventData
-                {
-                    Service = serviceName,
-                    Message = exception.Message,
-                    Meta = meta!
-                }
-            };
+                publisher = scopedPublisher;
+            }
+            else if (httpContext.RequestServices.GetService(typeof(MassTransit.ISendEndpointProvider)) is MassTransit.ISendEndpointProvider provider)
+            {
+                publisher = new MassTransitErrorPublisher(provider);
+            }
 
-            var sendEndpoint = await sendEndpointProvider.GetSendEndpoint(new Uri($"queue:{queueName}"));
-            await sendEndpoint.Send(errorEvent);
+            await publisher.PublishErrorAsync(serviceName, exception, meta, cancellationToken);
         }
         catch (Exception ex)
         {

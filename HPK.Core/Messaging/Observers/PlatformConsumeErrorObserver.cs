@@ -5,15 +5,18 @@ using MassTransit;
 using Microsoft.Extensions.Logging;
 using HPK.Core.Events;
 using HPK.Core.Extensions;
+using HPK.Core.Messaging.Services;
 
 namespace HPK.Core.Messaging.Observers;
 
 public class PlatformConsumeErrorObserver : IConsumeObserver
 {
+    private readonly IPlatformErrorPublisher? _errorPublisher;
     private readonly ILogger<PlatformConsumeErrorObserver>? _logger;
 
-    public PlatformConsumeErrorObserver(ILogger<PlatformConsumeErrorObserver>? logger = null)
+    public PlatformConsumeErrorObserver(IPlatformErrorPublisher? errorPublisher = null, ILogger<PlatformConsumeErrorObserver>? logger = null)
     {
+        _errorPublisher = errorPublisher;
         _logger = logger;
     }
 
@@ -29,7 +32,6 @@ public class PlatformConsumeErrorObserver : IConsumeObserver
 
         try
         {
-            var queueName = Environment.GetEnvironmentVariable("ACTION_SERVICE_QUEUE") ?? DotNetEnv.Env.GetString("ACTION_SERVICE_QUEUE") ?? "icot_action_queue";
             var serviceName = PlatformApiExtensions.CurrentServiceName ?? "unknown";
 
             var meta = new Dictionary<string, object?>
@@ -45,20 +47,8 @@ public class PlatformConsumeErrorObserver : IConsumeObserver
                 ["inner_exception"] = exception.InnerException?.Message
             };
 
-            var errorEvent = new LogErrorEvent
-            {
-                Event = "log:error",
-                Priority = 1,
-                Data = new LogErrorEventData
-                {
-                    Service = serviceName,
-                    Message = exception.Message,
-                    Meta = meta!
-                }
-            };
-
-            var sendEndpoint = await context.GetSendEndpoint(new Uri($"queue:{queueName}"));
-            await sendEndpoint.Send(errorEvent);
+            var publisher = _errorPublisher ?? new MassTransitErrorPublisher(context);
+            await publisher.PublishErrorAsync(serviceName, exception, meta, context.CancellationToken);
         }
         catch (Exception ex)
         {

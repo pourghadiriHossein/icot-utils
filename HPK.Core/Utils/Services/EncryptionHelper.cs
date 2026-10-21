@@ -1,78 +1,18 @@
-using System;
-using System.IO;
-using System.Security.Cryptography;
-using System.Text;
-
 namespace HPK.Core.Utils.Services;
 
+/// <summary>
+/// Static facade for <see cref="IEncryptionService"/> providing backward compatibility across existing services.
+/// </summary>
 public static class EncryptionHelper
 {
-    private static readonly string DefaultKey = "Icot_Platform_Secure_Key_2026!#$"; // 32 chars for AES-256
+    private static IEncryptionService _service = AesEncryptionService.Instance;
 
-    public static string Encrypt(string plainText, string? key = null)
+    public static void Configure(IEncryptionService service)
     {
-        if (string.IsNullOrEmpty(plainText))
-            return plainText;
-
-        var encryptionKey = GetValidKey(key);
-
-        using var aes = Aes.Create();
-        aes.Key = encryptionKey;
-        aes.GenerateIV();
-
-        using var encryptor = aes.CreateEncryptor(aes.Key, aes.IV);
-        using var ms = new MemoryStream();
-        
-        // Prepend IV to ciphertext stream
-        ms.Write(aes.IV, 0, aes.IV.Length);
-
-        using (var cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
-        using (var sw = new StreamWriter(cs, Encoding.UTF8))
-        {
-            sw.Write(plainText);
-        }
-
-        return Convert.ToBase64String(ms.ToArray());
+        _service = service ?? AesEncryptionService.Instance;
     }
 
-    public static string Decrypt(string cipherText, string? key = null)
-    {
-        if (string.IsNullOrEmpty(cipherText))
-            return cipherText;
+    public static string Encrypt(string plainText, string? key = null) => _service.Encrypt(plainText, key);
 
-        try
-        {
-            var fullCipher = Convert.FromBase64String(cipherText);
-            var encryptionKey = GetValidKey(key);
-
-            using var aes = Aes.Create();
-            aes.Key = encryptionKey;
-
-            var iv = new byte[aes.BlockSize / 8];
-            if (fullCipher.Length < iv.Length)
-                return cipherText;
-
-            Array.Copy(fullCipher, 0, iv, 0, iv.Length);
-            aes.IV = iv;
-
-            using var decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
-            using var ms = new MemoryStream(fullCipher, iv.Length, fullCipher.Length - iv.Length);
-            using var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read);
-            using var sr = new StreamReader(cs, Encoding.UTF8);
-
-            return sr.ReadToEnd();
-        }
-        catch
-        {
-            // If decryption fails (e.g. not encrypted yet or invalid format), return original text
-            return cipherText;
-        }
-    }
-
-    private static byte[] GetValidKey(string? key)
-    {
-        var rawKey = key ?? Environment.GetEnvironmentVariable("APP_KEY") ?? Environment.GetEnvironmentVariable("ENCRYPTION_KEY") ?? DefaultKey;
-        using var sha256 = SHA256.Create();
-        return sha256.ComputeHash(Encoding.UTF8.GetBytes(rawKey));
-    }
+    public static string Decrypt(string cipherText, string? key = null) => _service.Decrypt(cipherText, key);
 }
