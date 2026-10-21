@@ -1,5 +1,5 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="HPK.Core/HPK.Core.csproj" />
+    <Project Path="ICOT.Core/ICOT.Core.csproj" />
   </Folder>
 </Solution>

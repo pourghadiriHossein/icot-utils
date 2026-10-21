@@ -4,8 +4,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PackageId>HPK.Core</PackageId>
-    <!-- <Version>1.0.53</Version> version is auto incremented and do not edit manually -->
+    <PackageId>ICOT.Core</PackageId>
+    <AssemblyName>ICOT.Core</AssemblyName>
+    <!-- <Version>1.0.1</Version> version is auto incremented and do not edit manually -->
     <IsPackable>true</IsPackable>
   </PropertyGroup>
 
