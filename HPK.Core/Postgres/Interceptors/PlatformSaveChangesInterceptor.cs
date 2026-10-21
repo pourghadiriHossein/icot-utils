@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using HPK.Core.Utils.Services;
 
 namespace HPK.Core.Postgres.Interceptors;
@@ -14,6 +15,7 @@ public class PlatformSaveChangesInterceptor : SaveChangesInterceptor
 {
     private readonly IUserContextProvider _userContextProvider;
 
+    [ActivatorUtilitiesConstructor]
     public PlatformSaveChangesInterceptor(IUserContextProvider userContextProvider)
     {
         _userContextProvider = userContextProvider;

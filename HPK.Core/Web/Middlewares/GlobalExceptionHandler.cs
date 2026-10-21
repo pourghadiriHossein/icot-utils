@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using HPK.Core.Utils.Responses;
@@ -25,6 +26,7 @@ public class GlobalExceptionHandler : IExceptionHandler
     private readonly IExceptionResponseMapper _responseMapper;
     private readonly IPlatformErrorPublisher _errorPublisher;
 
+    [ActivatorUtilitiesConstructor]
     public GlobalExceptionHandler(
         ILogger<GlobalExceptionHandler> logger,
         IHostEnvironment env,
@@ -97,18 +99,8 @@ public class GlobalExceptionHandler : IExceptionHandler
                 ["client_ip"] = httpContext.Request.Headers["x-forwarded-ip"].ToString() is { Length: > 0 } ip ? ip : httpContext.Connection.RemoteIpAddress?.ToString()
             };
 
-            // Use the injected error publisher, or resolve one bound to the request scope if needed
-            var publisher = _errorPublisher;
-            if (httpContext.RequestServices.GetService(typeof(IPlatformErrorPublisher)) is IPlatformErrorPublisher scopedPublisher)
-            {
-                publisher = scopedPublisher;
-            }
-            else if (httpContext.RequestServices.GetService(typeof(MassTransit.ISendEndpointProvider)) is MassTransit.ISendEndpointProvider provider)
-            {
-                publisher = new MassTransitErrorPublisher(provider);
-            }
-
-            await publisher.PublishErrorAsync(serviceName, exception, meta, cancellationToken);
+            // Delegate error event publishing to IPlatformErrorPublisher (SRP & DIP)
+            await _errorPublisher.PublishErrorAsync(serviceName, exception, meta, cancellationToken);
         }
         catch (Exception ex)
         {

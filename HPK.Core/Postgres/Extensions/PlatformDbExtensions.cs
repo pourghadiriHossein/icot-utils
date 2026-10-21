@@ -17,7 +17,8 @@ public static class PlatformDbExtensions
     {
         services.AddHttpContextAccessor();
         services.AddSingleton<HPK.Core.Utils.Services.IUserContextProvider, HPK.Core.Utils.Services.HttpContextUserContextProvider>();
-        services.AddSingleton<HPK.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>();
+        services.AddSingleton<HPK.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>(sp =>
+            new HPK.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor(sp.GetRequiredService<HPK.Core.Utils.Services.IUserContextProvider>()));
         // Load .env file (assuming it is in the root directory)
         var rootDir = Directory.GetCurrentDirectory();
         while (!File.Exists(Path.Combine(rootDir, ".env")) && Directory.GetParent(rootDir) != null)
