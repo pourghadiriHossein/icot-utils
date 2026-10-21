@@ -178,7 +178,8 @@ public static class PlatformApiExtensions
         // Core SOLID Abstractions
         services.AddSingleton<HPK.Core.Utils.Services.IEncryptionService, HPK.Core.Utils.Services.AesEncryptionService>();
         services.AddSingleton<HPK.Core.Utils.Services.IUserContextProvider, HPK.Core.Utils.Services.HttpContextUserContextProvider>();
-        services.AddSingleton<HPK.Core.Messaging.Services.IPlatformErrorPublisher, HPK.Core.Messaging.Services.MassTransitErrorPublisher>();
+        services.AddSingleton<HPK.Core.Messaging.Services.IPlatformErrorPublisher>(sp =>
+            new HPK.Core.Messaging.Services.MassTransitErrorPublisher(sp, sp.GetService<Microsoft.Extensions.Logging.ILogger<HPK.Core.Messaging.Services.MassTransitErrorPublisher>>()));
         services.AddSingleton<HPK.Core.Middlewares.IExceptionResponseMapper, HPK.Core.Middlewares.DefaultExceptionResponseMapper>();
         services.AddSingleton<HPK.Core.Middlewares.ITenantPolicyValidator, HPK.Core.Middlewares.DefaultTenantPolicyValidator>();
         services.AddSingleton<HPK.Core.Behaviors.ILogPayloadSanitizer, HPK.Core.Behaviors.DefaultLogPayloadSanitizer>();

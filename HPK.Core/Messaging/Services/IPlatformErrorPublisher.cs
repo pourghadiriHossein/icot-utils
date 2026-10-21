@@ -36,15 +36,18 @@ public class MassTransitErrorPublisher : IPlatformErrorPublisher
         _logger = logger;
     }
 
-    public MassTransitErrorPublisher(ISendEndpointProvider directProvider, ILogger<MassTransitErrorPublisher>? logger = null)
+    internal MassTransitErrorPublisher(ISendEndpointProvider directProvider, ILogger<MassTransitErrorPublisher>? logger = null)
     {
         _directProvider = directProvider;
         _logger = logger;
     }
 
-    public MassTransitErrorPublisher()
+    internal MassTransitErrorPublisher()
     {
     }
+
+    public static MassTransitErrorPublisher FromSendEndpoint(ISendEndpointProvider directProvider, ILogger<MassTransitErrorPublisher>? logger = null)
+        => new(directProvider, logger);
 
     public async Task PublishErrorAsync(string serviceName, Exception exception, Dictionary<string, object?> meta, CancellationToken cancellationToken = default)
     {
