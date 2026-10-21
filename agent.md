@@ -57,12 +57,16 @@ A critical part of `HPK.Core` is the `TenantValidationMiddleware`. It universall
   - Delete (DELETE): `200 OK` or `204 No Content`
   Use `StatusCode(201, ...)` for creations.
 
-- **JSON:API Query Standard**: All `index`/`list` endpoints MUST use `[FromQuery] JsonApiQueryOptions options` from `HPK.Core.JsonApi` and utilize `.ApplyJsonApiAsync(options)` in their CQRS Handlers to support standardized JSON:API querying, filtering, sorting, and pagination. 
+- **JSON:API Query Standard (Modular Architecture)**: All `index`/`list` endpoints MUST use `[FromQuery] JsonApiQueryOptions options` from `HPK.Core.JsonApi` and utilize `.ApplyJsonApiAsync(options)` in their CQRS Handlers to support standardized JSON:API querying, filtering, sorting, and pagination.
+  - Architecture & SRP Compliance: `JsonApiExtensions.cs` acts as a clean, lightweight facade (~60 lines) delegating specialized responsibilities to dedicated single-purpose classes:
+    - `JsonApiFilterBuilder.cs`: Dynamic LINQ expression trees, multilingual JSONB dictionary search (`ILIKE`), null comparisons (`null`/`!null`), and `$or` parameter parsing.
+    - `JsonApiSortBuilder.cs`: Sort field validation against entity properties, direction parsing (`-`), and fallback ordering (`CreatedAt desc` / `Id desc`).
+    - `JsonApiDataShaper.cs`: Dynamic payload reflection, inclusion/exclusion (`?select`), envelope traversal, nested dot-notation, and `[JsonPropertyName]` preservation.
   - NEVER use manual parameters like `int page` or `int per_page` in controller signatures. 
   - Pagination parameters must automatically be processed as `page[number]` and `page[size]` by `JsonApiQueryOptions`.
   - Filtering natively supports `null` / `!null` (e.g. `filter[parent_id]=null`, `filter[parent_id]=!null`) for nullable value types (`Guid?`, `int?`, etc.) and reference types.
   - Multilingual & JSONB Dictionary Filtering: `ApplyJsonApiAsync` natively supports filtering on `Dictionary<string, string>` and `IDictionary` properties (e.g. `Title`, `Description`, `Meta`, `Rules`). It translates to case-insensitive `ILIKE` on PostgreSQL `(field::text)` matching GIN trigram indexes for whole-JSON search (`filter[title]=value`), and supports language/key-specific lookups (`filter[title.fa]=value` or `filter[title][fa]=value`), exact matches (`==`), multiple OR terms (`filter[title]=val1|val2`), and seamless inclusion in global `$or` clauses (e.g. `filter[$or]=slug:iran|iataCode:iran|title:iran|title.en:iran|title.fa:iran`). In-memory evaluation is provided for unit testing.
-  - Dynamic Field Selection & Shaping (`?select`): Managed globally by `ApiResponseFilter` and `JsonApiExtensions.ShapeData`. Supports inclusion (`?select=id,service`), exclusion (`?select=-meta,-message`), and nested dot-notation (`?select=profile,-profile.age`), seamlessly handling data envelope dictionaries (`{"error_logs": [...]}`), individual DTOs, and direct collections with case-insensitivity, snake_case conversion, and `[JsonPropertyName]` preservation.
+  - Dynamic Field Selection & Shaping (`?select`): Managed globally by `ApiResponseFilter` and `JsonApiExtensions.ShapeData` (delegating to `JsonApiDataShaper`). Supports inclusion (`?select=id,service`), exclusion (`?select=-meta,-message`), and nested dot-notation (`?select=profile,-profile.age`), seamlessly handling data envelope dictionaries (`{"error_logs": [...]}`), individual DTOs, and direct collections with case-insensitivity, snake_case conversion, and `[JsonPropertyName]` preservation.
 
 ### Mandatory Logging
 - Every MediatR Command or Query must implement `HPK.Core.Interfaces.ILoggableRequest` to auto-publish `log:add` to RabbitMQ. Specify `LogService`, `LogTable`, `LogModel`, and `LogType` (`command` or `query`).
