@@ -10,6 +10,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using Microsoft.OpenApi;
+using System.Net.Http;
 
 namespace HPK.Core.Extensions;
 
@@ -428,6 +429,16 @@ public static class PlatformApiExtensions
             }
 
             options.Address = uri;
+        })
+        .SetHandlerLifetime(TimeSpan.FromHours(1))
+        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            EnableMultipleHttp2Connections = true,
+            KeepAlivePingDelay = TimeSpan.FromSeconds(60),
+            KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
+            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
+            PooledConnectionLifetime = TimeSpan.FromHours(1),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5)
         });
     }
 }

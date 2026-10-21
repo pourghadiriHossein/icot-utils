@@ -69,6 +69,10 @@ A critical part of `HPK.Core` is the `TenantValidationMiddleware`. It universall
   - Enables `SocketsHttpHandler.Http2UnencryptedSupport` via AppContext switch.
   - Discovers target endpoint directly from `<SERVICE>_SERVICE_URL` without any port manipulation.
   - Configures `GrpcClient` to target the service URL directly using HTTP/2 cleartext.
+  - **High-Performance Connection Pooling & Lifecycle Tuning**:
+    - Configured `.SetHandlerLifetime(TimeSpan.FromHours(1))` and `PooledConnectionLifetime = TimeSpan.FromHours(1)` to eliminate the 2-minute connection churn and cold start latency spikes.
+    - Configured `EnableMultipleHttp2Connections = true` on `SocketsHttpHandler` to scale out across parallel HTTP/2 TCP sockets during traffic bursts, preventing Head-of-Line blocking.
+    - Configured `KeepAlivePingDelay = 60s`, `KeepAlivePingTimeout = 30s`, and `KeepAlivePingPolicy = Always` to keep connections permanently warm and prevent silent drops by cloud NAT, K8s, or firewalls.
 
 ### 📦 Self-Contained Proto Contract Architecture (Docker & CI Deployment Rule)
 - **Zero Cross-Repository References**: In Docker and CI environments, each microservice builds inside an isolated build context containing only its own repository. NEVER reference `.proto` files using relative cross-repository paths (e.g. `..\..\..\other-service\...`).
