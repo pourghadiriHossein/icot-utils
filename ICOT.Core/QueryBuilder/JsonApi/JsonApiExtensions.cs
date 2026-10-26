@@ -27,7 +27,7 @@ public static class JsonApiExtensions
             }
         }
 
-        // 2. Filtering (?filter[name]=john&filter[status]=active&filter[$or]=slug:iran|title:iran|title.en:iran)
+        // 2. Filtering (?filter[name]=john&filter[status]=active&filter[$or]=slug:iran|title:iran|title.en:iran, ?filter[type.key]=abcd)
         query = JsonApiFilterBuilder.ApplyFilter(query, options.Filter);
 
         // 3. Sorting (?sort=-created_at,title)

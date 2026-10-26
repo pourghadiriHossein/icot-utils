@@ -59,7 +59,7 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
 
 - **JSON:API Query Standard (Modular Architecture)**: All `index`/`list` endpoints MUST use `[FromQuery] JsonApiQueryOptions options` from `ICOT.Core.JsonApi` and utilize `.ApplyJsonApiAsync(options)` in their CQRS Handlers to support standardized JSON:API querying, filtering, sorting, and pagination.
   - Architecture & SRP Compliance: `JsonApiExtensions.cs` acts as a clean, lightweight facade (~60 lines) delegating specialized responsibilities to dedicated single-purpose classes:
-    - `JsonApiFilterBuilder.cs`: Dynamic LINQ expression trees, multilingual JSONB dictionary search (`ILIKE`), null comparisons (`null`/`!null`), and `$or` parameter parsing.
+    - `JsonApiFilterBuilder.cs`: Dynamic LINQ expression trees, relation/navigation property filtering (`filter[relation.property]`, 1:1, N:1, and 1:N `.Any(...)`), multilingual JSONB dictionary search (`ILIKE`), null comparisons (`null`/`!null`), and `$or` parameter parsing.
     - `JsonApiSortBuilder.cs`: Sort field validation against entity properties, direction parsing (`-`), and fallback ordering (`CreatedAt desc` / `Id desc`).
     - `JsonApiDataShaper.cs`: Dynamic payload reflection, inclusion/exclusion (`?select`), envelope traversal, nested dot-notation, and `[JsonPropertyName]` preservation.
   - NEVER use manual parameters like `int page` or `int per_page` in controller signatures. 

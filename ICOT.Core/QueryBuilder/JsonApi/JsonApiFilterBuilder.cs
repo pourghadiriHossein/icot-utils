@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -30,7 +31,7 @@ public static class JsonApiFilterBuilder
             var rawValue = filter.Value?.Trim();
             if (string.IsNullOrEmpty(rawKey) || string.IsNullOrEmpty(rawValue)) continue;
 
-            // Handle global OR across multiple fields: ?filter[$or]=age:>18|name:john|title.en:iran
+            // Handle global OR across multiple fields: ?filter[$or]=age:>18|name:john|title.en:iran|type.key:abcd
             if (rawKey.Equals("$or", StringComparison.OrdinalIgnoreCase))
             {
                 var orConditions = rawValue.Split('|', StringSplitOptions.RemoveEmptyEntries);
@@ -44,13 +45,10 @@ public static class JsonApiFilterBuilder
                         var fieldKey = parts[0].Trim();
                         var conditionVal = parts[1].Trim();
 
-                        if (TryResolveProperty(typeof(T), fieldKey, out var propInfo, out var subKey) && propInfo != null)
+                        var expr = BuildExpressionFromPath(parameter, typeof(T), fieldKey, conditionVal, isRelational);
+                        if (expr != null)
                         {
-                            var expr = BuildSingleConditionExpression(parameter, propInfo, conditionVal, subKey, isRelational);
-                            if (expr != null)
-                            {
-                                combinedOr = combinedOr == null ? expr : Expression.OrElse(combinedOr, expr);
-                            }
+                            combinedOr = combinedOr == null ? expr : Expression.OrElse(combinedOr, expr);
                         }
                     }
                 }
@@ -62,14 +60,11 @@ public static class JsonApiFilterBuilder
                 continue;
             }
 
-            // Regular filter field (including dictionary fields and nested keys like filter[title.en]=iran or filter[title][en]=iran)
-            if (TryResolveProperty(typeof(T), rawKey, out var propertyInfo, out var fieldSubKey) && propertyInfo != null)
+            // Regular filter field (including dictionary fields and nested relation keys like filter[type.key]=abcd or sub_filter[type.key]=abcd)
+            var singleExpr = BuildExpressionFromPath(parameter, typeof(T), rawKey, rawValue, isRelational);
+            if (singleExpr != null)
             {
-                var expr = BuildSingleConditionExpression(parameter, propertyInfo, rawValue, fieldSubKey, isRelational);
-                if (expr != null)
-                {
-                    andExpressions.Add(expr);
-                }
+                andExpressions.Add(singleExpr);
             }
         }
 
@@ -83,67 +78,181 @@ public static class JsonApiFilterBuilder
         return query;
     }
 
-    private static bool TryResolveProperty(Type entityType, string rawKey, out PropertyInfo? propertyInfo, out string? subKey)
+    private static Expression? BuildExpressionFromPath(
+        Expression currentExpr, 
+        Type currentType, 
+        string path, 
+        string rawValue, 
+        bool isRelational)
     {
-        var normalizedKey = rawKey.Trim().Replace("][", ".").Replace("[", ".").Replace("]", "");
-        propertyInfo = null;
-        subKey = null;
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(rawValue)) return null;
 
-        if (normalizedKey.Contains('.'))
+        var normalizedKey = path.Trim().Replace("][", ".").Replace("[", ".").Replace("]", "");
+
+        if (!normalizedKey.Contains('.'))
         {
-            var dotIdx = normalizedKey.IndexOf('.');
-            var candidateField = ToPascalCase(normalizedKey.Substring(0, dotIdx));
-            var candidateProp = entityType.GetProperty(candidateField, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
-            if (candidateProp != null && typeof(IDictionary).IsAssignableFrom(candidateProp.PropertyType))
-            {
-                propertyInfo = candidateProp;
-                subKey = normalizedKey.Substring(dotIdx + 1);
-                return true;
-            }
-
-            var directField = ToPascalCase(normalizedKey);
-            var directProp = entityType.GetProperty(directField, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+            var directProp = currentType.GetProperty(ToPascalCase(normalizedKey), BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
             if (directProp != null)
             {
-                propertyInfo = directProp;
+                var access = Expression.Property(currentExpr, directProp);
+                return BuildConditionForExpression(access, directProp.PropertyType, rawValue, null, isRelational);
+            }
+            return null;
+        }
+
+        var dotIdx = normalizedKey.IndexOf('.');
+        var firstSegment = normalizedKey.Substring(0, dotIdx);
+        var remainingKey = normalizedKey.Substring(dotIdx + 1);
+
+        // 1. Direct dictionary property (e.g. title.en or description.fa)
+        var dictProp = currentType.GetProperty(ToPascalCase(firstSegment), BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+        if (dictProp != null && typeof(IDictionary).IsAssignableFrom(dictProp.PropertyType))
+        {
+            var access = Expression.Property(currentExpr, dictProp);
+            return BuildDictionaryCondition(access, dictProp.PropertyType, rawValue, remainingKey, isRelational);
+        }
+
+        // 2. Navigation Property (Reference or Collection)
+        if (TryResolveNavigationProperty(currentType, firstSegment, out var navProp, out var isCollection, out var targetEntityType) && navProp != null && targetEntityType != null)
+        {
+            var navAccess = Expression.Property(currentExpr, navProp);
+
+            if (isCollection)
+            {
+                var subParam = Expression.Parameter(targetEntityType, "sub");
+                var subCond = BuildExpressionFromPath(subParam, targetEntityType, remainingKey, rawValue, isRelational);
+                if (subCond == null) return null;
+
+                var lambda = Expression.Lambda(subCond, subParam);
+                var anyMethod = typeof(Enumerable).GetMethods()
+                    .First(m => m.Name == nameof(Enumerable.Any) && m.GetParameters().Length == 2)
+                    .MakeGenericMethod(targetEntityType);
+                var anyCall = Expression.Call(anyMethod, navAccess, lambda);
+
+                var collNotNull = Expression.NotEqual(navAccess, Expression.Constant(null, navProp.PropertyType));
+                return Expression.AndAlso(collNotNull, anyCall);
+            }
+            else
+            {
+                var navCond = BuildExpressionFromPath(navAccess, targetEntityType, remainingKey, rawValue, isRelational);
+                if (navCond == null) return null;
+
+                var notNull = Expression.NotEqual(navAccess, Expression.Constant(null, navProp.PropertyType));
+                return Expression.AndAlso(notNull, navCond);
+            }
+        }
+
+        // 3. Fallback direct property with dot in normalized form or full match (e.g. PascalCase direct field)
+        var fallbackProp = currentType.GetProperty(ToPascalCase(normalizedKey), BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+        if (fallbackProp != null)
+        {
+            var access = Expression.Property(currentExpr, fallbackProp);
+            return BuildConditionForExpression(access, fallbackProp.PropertyType, rawValue, null, isRelational);
+        }
+
+        return null;
+    }
+
+    private static bool TryResolveNavigationProperty(
+        Type entityType, 
+        string segment, 
+        out PropertyInfo? navProp, 
+        out bool isCollection, 
+        out Type? targetEntityType)
+    {
+        navProp = null;
+        isCollection = false;
+        targetEntityType = null;
+
+        var pascalSegment = ToPascalCase(segment);
+        var prop = entityType.GetProperty(pascalSegment, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+
+        // 1. If property is found directly on entity
+        if (prop != null)
+        {
+            var pType = prop.PropertyType;
+            if (!IsSimpleType(pType) && !typeof(IDictionary).IsAssignableFrom(pType))
+            {
+                if (typeof(IEnumerable).IsAssignableFrom(pType))
+                {
+                    var elemType = GetCollectionElementType(pType);
+                    if (elemType != null && !IsSimpleType(elemType))
+                    {
+                        navProp = prop;
+                        isCollection = true;
+                        targetEntityType = elemType;
+                        return true;
+                    }
+                }
+                else
+                {
+                    navProp = prop;
+                    isCollection = false;
+                    targetEntityType = pType;
+                    return true;
+                }
+            }
+
+            // If prop is a Foreign Key (e.g. Guid? Type or Guid CabinType), check for navigation property pointing to it
+            var fkNav = entityType.GetProperty(prop.Name + "Enum", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance)
+                     ?? entityType.GetProperty(prop.Name + "Item", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance)
+                     ?? entityType.GetProperty(prop.Name + "Navigation", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance)
+                     ?? entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                                  .FirstOrDefault(p => string.Equals(p.GetCustomAttribute<ForeignKeyAttribute>()?.Name, prop.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (fkNav != null && !IsSimpleType(fkNav.PropertyType) && !typeof(IDictionary).IsAssignableFrom(fkNav.PropertyType))
+            {
+                navProp = fkNav;
+                isCollection = false;
+                targetEntityType = fkNav.PropertyType;
                 return true;
             }
 
-            if (candidateProp != null)
+            // Check conventional FK suffix trim (e.g. "PlaceId" -> "Place")
+            if (prop.Name.Length > 2 && prop.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase))
             {
-                propertyInfo = candidateProp;
-                subKey = normalizedKey.Substring(dotIdx + 1);
-                return true;
+                var trimmedNav = entityType.GetProperty(prop.Name.Substring(0, prop.Name.Length - 2), BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+                if (trimmedNav != null && !IsSimpleType(trimmedNav.PropertyType) && !typeof(IDictionary).IsAssignableFrom(trimmedNav.PropertyType))
+                {
+                    navProp = trimmedNav;
+                    isCollection = false;
+                    targetEntityType = trimmedNav.PropertyType;
+                    return true;
+                }
             }
         }
-        else
+
+        // 2. If prop wasn't directly found, check conventions: e.g. "type" -> "TypeEnum"
+        var conventionNav = entityType.GetProperty(pascalSegment + "Enum", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance)
+                         ?? entityType.GetProperty(pascalSegment + "Item", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance)
+                         ?? entityType.GetProperty(pascalSegment + "Navigation", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance)
+                         ?? entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                                      .FirstOrDefault(p => string.Equals(p.GetCustomAttribute<ForeignKeyAttribute>()?.Name, pascalSegment, StringComparison.OrdinalIgnoreCase));
+
+        if (conventionNav != null && !IsSimpleType(conventionNav.PropertyType) && !typeof(IDictionary).IsAssignableFrom(conventionNav.PropertyType))
         {
-            var field = ToPascalCase(normalizedKey);
-            propertyInfo = entityType.GetProperty(field, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
-            if (propertyInfo != null)
-            {
-                return true;
-            }
+            navProp = conventionNav;
+            isCollection = false;
+            targetEntityType = conventionNav.PropertyType;
+            return true;
         }
 
         return false;
     }
 
-    private static Expression? BuildSingleConditionExpression(
-        Expression parameter, 
-        PropertyInfo propertyInfo, 
+    private static Expression? BuildConditionForExpression(
+        Expression propertyAccess, 
+        Type propertyType, 
         string rawValue, 
         string? subKey, 
         bool isRelational)
     {
         if (string.IsNullOrWhiteSpace(rawValue)) return null;
 
-        var propertyType = propertyInfo.PropertyType;
-
         // 1. Dictionary property (multilingual jsonb)
         if (typeof(IDictionary).IsAssignableFrom(propertyType))
         {
-            return BuildDictionaryCondition(parameter, propertyInfo, rawValue, subKey, isRelational);
+            return BuildDictionaryCondition(propertyAccess, propertyType, rawValue, subKey, isRelational);
         }
 
         // 2. String or Value type with multiple OR terms: e.g. status=active|pending or age=>18|<10
@@ -156,7 +265,7 @@ public static class JsonApiFilterBuilder
             Expression? orExpr = null;
             foreach (var term in terms)
             {
-                var singleExpr = BuildSingleValueCondition(parameter, propertyInfo, term.Trim(), isRelational);
+                var singleExpr = BuildSingleValueCondition(propertyAccess, propertyType, term.Trim(), isRelational);
                 if (singleExpr != null)
                 {
                     orExpr = orExpr == null ? singleExpr : Expression.OrElse(orExpr, singleExpr);
@@ -165,20 +274,18 @@ public static class JsonApiFilterBuilder
             return orExpr;
         }
 
-        return BuildSingleValueCondition(parameter, propertyInfo, rawValue, isRelational);
+        return BuildSingleValueCondition(propertyAccess, propertyType, rawValue, isRelational);
     }
 
     private static Expression? BuildDictionaryCondition(
-        Expression parameter, 
-        PropertyInfo propertyInfo, 
+        Expression propertyAccess, 
+        Type propertyType, 
         string value, 
         string? subKey, 
         bool isRelational)
     {
         var terms = value.Split('|', StringSplitOptions.RemoveEmptyEntries);
         if (!terms.Any()) return null;
-
-        var propertyAccess = Expression.Property(parameter, propertyInfo);
 
         if (isRelational)
         {
@@ -222,7 +329,7 @@ public static class JsonApiFilterBuilder
 
                 if (isNotEqual)
                 {
-                    var isNull = Expression.Equal(propertyAccess, Expression.Constant(null, propertyInfo.PropertyType));
+                    var isNull = Expression.Equal(propertyAccess, Expression.Constant(null, propertyType));
                     call = Expression.OrElse(isNull, Expression.Not(call));
                 }
 
@@ -288,14 +395,12 @@ public static class JsonApiFilterBuilder
     }
 
     private static Expression? BuildSingleValueCondition(
-        Expression parameter, 
-        PropertyInfo propertyInfo, 
+        Expression propertyAccess, 
+        Type propertyType, 
         string value, 
         bool isRelational)
     {
-        var propertyType = propertyInfo.PropertyType;
         bool isString = propertyType == typeof(string);
-        var propertyAccess = Expression.Property(parameter, propertyInfo);
 
         // IN / NOT IN
         if (value.StartsWith("in:", StringComparison.OrdinalIgnoreCase))
@@ -493,5 +598,32 @@ public static class JsonApiFilterBuilder
             return bool.Parse(value);
 
         return Convert.ChangeType(value, underlyingType);
+    }
+
+    private static bool IsSimpleType(Type type)
+    {
+        var underlying = Nullable.GetUnderlyingType(type) ?? type;
+        return underlying.IsPrimitive 
+            || underlying.IsEnum 
+            || underlying == typeof(string) 
+            || underlying == typeof(decimal) 
+            || underlying == typeof(DateTime) 
+            || underlying == typeof(DateTimeOffset) 
+            || underlying == typeof(TimeSpan) 
+            || underlying == typeof(Guid);
+    }
+
+    private static Type? GetCollectionElementType(Type collectionType)
+    {
+        if (collectionType.IsArray)
+            return collectionType.GetElementType();
+
+        if (collectionType.IsGenericType && collectionType.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            return collectionType.GetGenericArguments()[0];
+
+        var enumInterface = collectionType.GetInterfaces()
+            .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+
+        return enumInterface?.GetGenericArguments()[0];
     }
 }
