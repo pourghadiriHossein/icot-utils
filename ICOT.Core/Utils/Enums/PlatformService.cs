@@ -14,7 +14,8 @@ public enum PlatformService
     Policy,
     Domain,
     Recommender,
-    ApiGateway
+    ApiGateway,
+    Ai
 }
 
 public static class PlatformServiceExtensions
@@ -22,6 +23,7 @@ public static class PlatformServiceExtensions
     public static string ToLowerString(this PlatformService service) => service switch
     {
         PlatformService.ApiGateway => "gateway",
+        PlatformService.Ai => "ai",
         _ => service.ToString().ToLowerInvariant()
     };
 }
