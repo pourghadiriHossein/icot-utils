@@ -78,6 +78,11 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
 - **HTTP Exception Interception**: `GlobalExceptionHandler` intercepts all unhandled HTTP exceptions across all microservices, formats the response, and asynchronously fire-and-forgets a `LogErrorEvent` containing the originating service name, exception message, HTTP method, path, query string, trace ID, headers (`x-account`, `x-workspace`), and stack trace.
 - **Queue Consumer Exception Interception**: `PlatformConsumeErrorObserver` is automatically registered in `AddPlatformRabbitMq`. It listens to `ConsumeFault<T>` across all MassTransit consumers and publishes a `LogErrorEvent` with the faulted consumer type, message type, and exception details, safely skipping recursion if `T` is `LogErrorEvent`.
 
+### 🔔 Centralized Platform Notification Publishing (`notification:add`)
+- **Event Contract (`NotificationAddEvent`)**: Defined in `ICOT.Core.Events.NotificationAddEvent` and `NotificationAddEventData`. Uses `Event = "notification:add"` with priority 1, dispatched to `ACTION_SERVICE_QUEUE` (`icot_action_queue`).
+- **Notification Type Enum (`NotificationType`)**: Defined in `ICOT.Core.Utils.Enums.NotificationType` (`info`, `warning`, `danger`, `success`).
+- **Publisher Abstraction (`IPlatformNotificationPublisher`)**: Defined in `ICOT.Core.Messaging.Services.IPlatformNotificationPublisher` and implemented by `MassTransitNotificationPublisher`. Registered as a Singleton in `AddPlatformApiStandard`. Microservices can inject `IPlatformNotificationPublisher` to easily dispatch user/workspace notifications without coupling to queue topologies or manual message construction.
+
 ### 🚀 Single-Port Kestrel Hosting & Inter-Service gRPC Architecture
 - **Single-Port Architecture**: Every microservice listens on a single port specified by `<SERVICE>_SERVICE_URL` (e.g. `http://localhost:5005`). No dual ports, no `port + 100`, and no separate `_GRPC_PORT` or `_GRPC_URL` variables.
 - **Kestrel Protocol Setup (`ConfigurePlatformHost`)**:
