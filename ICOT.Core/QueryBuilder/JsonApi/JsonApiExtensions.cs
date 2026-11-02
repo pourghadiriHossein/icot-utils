@@ -6,16 +6,28 @@ using System.Threading.Tasks;
 namespace ICOT.Core.JsonApi;
 
 /// <summary>
-/// Provides high-level extension methods for applying JSON:API filtering, sorting, includes, pagination, and data shaping.
-/// Delegates specialized responsibilities to JsonApiFilterBuilder, JsonApiSortBuilder, and JsonApiDataShaper.
+/// Provides high-level extension methods for applying JSON:API filtering, soft-delete / trash management, sorting, includes, pagination, and data shaping.
+/// Delegates specialized responsibilities to JsonApiSoftDeleteBuilder, JsonApiFilterBuilder, JsonApiSortBuilder, and JsonApiDataShaper.
 /// </summary>
 public static class JsonApiExtensions
 {
     /// <summary>
-    /// Applies JSON:API specification query options (Filter, Sort, Include, Pagination) to an IQueryable.
+    /// Applies soft-delete filtering to an IQueryable based on JsonApiQueryOptions.Trash.
+    /// Excludes soft-deleted records (DeletedAt == null) by default unless trash=true or trash=all.
+    /// </summary>
+    public static IQueryable<T> ApplySoftDelete<T>(this IQueryable<T> query, JsonApiQueryOptions? options) where T : class
+    {
+        return JsonApiSoftDeleteBuilder.ApplySoftDelete(query, options);
+    }
+
+    /// <summary>
+    /// Applies JSON:API specification query options (SoftDelete, Filter, Sort, Include, Pagination) to an IQueryable.
     /// </summary>
     public static async Task<PagedResult<T>> ApplyJsonApiAsync<T>(this IQueryable<T> query, JsonApiQueryOptions options) where T : class
     {
+        // 0. Soft-delete / Trash filtering (?trash=true -> only deleted, ?trash=all -> with deleted, default -> only active)
+        query = JsonApiSoftDeleteBuilder.ApplySoftDelete(query, options);
+
         // 1. Includes (?include=author,comments.author)
         if (!string.IsNullOrWhiteSpace(options.Include))
         {

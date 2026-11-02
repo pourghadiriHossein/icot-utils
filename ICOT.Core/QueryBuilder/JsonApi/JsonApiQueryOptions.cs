@@ -21,10 +21,25 @@ public class JsonApiQueryOptions
     [FromQuery(Name = "select")]
     public string? Select { get; set; }
 
+    /// <summary>
+    /// Soft-delete / Trash filtering mode:
+    /// 'true' (or '1') = Only deleted records (DeletedAt != null)
+    /// 'false' (or '0', or omitted) = Only active records (DeletedAt == null)
+    /// 'all' = All records, including both active and deleted
+    /// </summary>
+    [FromQuery(Name = "trash")]
+    public string? Trash { get; set; }
+
     [FromQuery(Name = "page")]
     public Dictionary<string, int> Page { get; set; } = new();
 
     public int GetPageNumber() => Page.TryGetValue("number", out var num) && num > 0 ? num : 1;
     
     public int GetPageSize() => Page.TryGetValue("size", out var size) && size > 0 ? size : 10;
+
+    public bool IsTrashOnly() => string.Equals(Trash, "true", System.StringComparison.OrdinalIgnoreCase) || Trash == "1";
+
+    public bool IsAllWithTrash() => string.Equals(Trash, "all", System.StringComparison.OrdinalIgnoreCase) || 
+                                    string.Equals(Trash, "with", System.StringComparison.OrdinalIgnoreCase) || 
+                                    Trash == "*";
 }
