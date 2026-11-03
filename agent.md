@@ -102,3 +102,11 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
 - **Local Contract Placement**:
   - **Service Provider (Server)**: Hosts contract in `src/{Service}.API/Protos/{name}.proto` with `<Protobuf Include="Protos\{name}.proto" GrpcServices="Server" />`.
   - **Service Consumer (Client)**: Copies the contract locally into `src/{Service}.Infrastructure/Protos/{name}.proto` with `<Protobuf Include="Protos\{name}.proto" GrpcServices="Client" />`.
+
+
+## Naming & Casing Standard
+- **C# Classes, Methods & Properties**: `PascalCase` (e.g., `WorkspaceId`, `ConvertToService`, `ManualIconLink`).
+- **Local Variables & Parameters**: `camelCase` (`workspaceId`, `domainId`), Private Fields: `_camelCase`.
+- **API Routes**: `kebab-case` (e.g., `/api/v1/tour/tour-event-types`, `/api/v1/customer/user-experiences`, `/api/v1/workspace/account-roles`).
+- **JSON Payloads, Envelopes, Rules, Meta, Filters & Pagination**: Strictly `camelCase` across all requests, responses, `rules`/`meta` dictionaries, query filters (`filter[workspaceId]`), pagination metadata (`perPage`, `currentPage`, `lastPage`, `nextPageUrl`, `prevPageUrl`), and RabbitMQ events. No `snake_case` fallbacks (`IJsonOnDeserialized` / `JsonExtensionData`) are used.
+- **Database Tables & Columns (PostgreSQL)**: Strictly `snake_case` enforced via `builder.ApplySnakeCaseColumnNames()` in `OnModelCreating`.
