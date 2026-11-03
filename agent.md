@@ -103,10 +103,24 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
   - **Service Provider (Server)**: Hosts contract in `src/{Service}.API/Protos/{name}.proto` with `<Protobuf Include="Protos\{name}.proto" GrpcServices="Server" />`.
   - **Service Consumer (Client)**: Copies the contract locally into `src/{Service}.Infrastructure/Protos/{name}.proto` with `<Protobuf Include="Protos\{name}.proto" GrpcServices="Client" />`.
 
-
 ## Naming & Casing Standard
-- **C# Classes, Methods & Properties**: `PascalCase` (e.g., `WorkspaceId`, `ConvertToService`, `ManualIconLink`).
-- **Local Variables & Parameters**: `camelCase` (`workspaceId`, `domainId`), Private Fields: `_camelCase`.
+
+| بخش | Convention استاندارد | مثال |
+| --- | --- | --- |
+| نام کلاس‌ها | `PascalCase` | `UserService` |
+| نام متدها | `PascalCase` | `GetUserById()` |
+| نام Propertyها | `PascalCase` | `FirstName` |
+| نام متغیرها | `camelCase` | `userId` |
+| پارامترهای متد | `camelCase` | `workspaceId` |
+| فیلدهای خصوصی | `camelCase` با `_` | `_userRepository` |
+| نام فایل‌های C# | `PascalCase` | `UserService.cs` |
+| نام پروژه‌ها | `PascalCase` | `User.Application.csproj` |
+| نام JSON در API | `camelCase` | `firstName` |
+| نام جداول دیتابیس | `snake_case` | `users` |
+| نام ستون‌های دیتابیس | `snake_case` | `first_name` |
+| نام Migrationها | `PascalCase` | `CreateUsersTable` |
+| نام پوشه‌ها | `PascalCase` | `Users` |
+
 - **API Routes**: `kebab-case` (e.g., `/api/v1/tour/tour-event-types`, `/api/v1/customer/user-experiences`, `/api/v1/workspace/account-roles`).
 - **JSON Payloads, Envelopes, Rules, Meta, Filters & Pagination**: Strictly `camelCase` across all requests, responses, `rules`/`meta` dictionaries, query filters (`filter[workspaceId]`), pagination metadata (`perPage`, `currentPage`, `lastPage`, `nextPageUrl`, `prevPageUrl`), and RabbitMQ events. No `snake_case` fallbacks (`IJsonOnDeserialized` / `JsonExtensionData`) are used.
 - **Database Tables & Columns (PostgreSQL)**: Strictly `snake_case` enforced via `builder.ApplySnakeCaseColumnNames()` in `OnModelCreating`.
