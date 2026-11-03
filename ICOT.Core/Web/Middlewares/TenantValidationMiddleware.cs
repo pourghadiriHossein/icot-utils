@@ -50,7 +50,7 @@ public class TenantValidationMiddleware
             
             // Forcefully override/inject the workspace filtering
             updatedQuery["workspaceId"] = new Microsoft.Extensions.Primitives.StringValues(result.WorkspaceHeader);
-            updatedQuery["filter[workspace_id]"] = new Microsoft.Extensions.Primitives.StringValues(result.WorkspaceHeader);
+            updatedQuery["filter[workspaceId]"] = new Microsoft.Extensions.Primitives.StringValues(result.WorkspaceHeader);
 
             var qb = new QueryBuilder(updatedQuery);
             context.Request.QueryString = qb.ToQueryString();

@@ -37,14 +37,14 @@ public class PlatformConsumeErrorObserver : IConsumeObserver
             var meta = new Dictionary<string, object?>
             {
                 ["source"] = "queue",
-                ["message_type"] = typeof(T).FullName,
-                ["message_id"] = context.MessageId?.ToString(),
-                ["correlation_id"] = context.CorrelationId?.ToString(),
-                ["input_address"] = context.ReceiveContext.InputAddress?.ToString(),
-                ["destination_address"] = context.DestinationAddress?.ToString(),
-                ["exception_type"] = exception.GetType().FullName,
-                ["stack_trace"] = exception.StackTrace,
-                ["inner_exception"] = exception.InnerException?.Message
+                ["messageType"] = typeof(T).FullName,
+                ["messageId"] = context.MessageId?.ToString(),
+                ["correlationId"] = context.CorrelationId?.ToString(),
+                ["inputAddress"] = context.ReceiveContext.InputAddress?.ToString(),
+                ["destinationAddress"] = context.DestinationAddress?.ToString(),
+                ["exceptionType"] = exception.GetType().FullName,
+                ["stackTrace"] = exception.StackTrace,
+                ["innerException"] = exception.InnerException?.Message
             };
 
             var publisher = _errorPublisher ?? new MassTransitErrorPublisher(context);

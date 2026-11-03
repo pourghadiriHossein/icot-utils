@@ -13,7 +13,7 @@ public static class JsonApiSortBuilder
 {
     public static IQueryable<T> ApplySort<T>(IQueryable<T> query, string? sortQuery) where T : class
     {
-        // 1. Explicit sort (?sort=-created_at,title)
+        // 1. Explicit sort (?sort=-createdAt,title)
         if (!string.IsNullOrWhiteSpace(sortQuery))
         {
             var sortFields = sortQuery.Split(',', StringSplitOptions.RemoveEmptyEntries);
@@ -29,7 +29,7 @@ public static class JsonApiSortBuilder
                 var propertyInfo = typeof(T).GetProperty(pascalField, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
                 if (propertyInfo != null)
                 {
-                    validOrderByStrings.Add(isDescending ? $"{pascalField} descending" : pascalField);
+                    validOrderByStrings.Add(isDescending ? $"{propertyInfo.Name} descending" : propertyInfo.Name);
                 }
             }
             
@@ -63,15 +63,7 @@ public static class JsonApiSortBuilder
     private static string ToPascalCase(string input)
     {
         if (string.IsNullOrEmpty(input)) return input;
-        
-        var words = input.Split(new[] { '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
-        for (int i = 0; i < words.Length; i++)
-        {
-            if (words[i].Length > 0)
-            {
-                words[i] = char.ToUpper(words[i][0]) + words[i].Substring(1).ToLower();
-            }
-        }
-        return string.Join("", words);
+        if (input.Length == 1) return input.ToUpperInvariant();
+        return char.ToUpperInvariant(input[0]) + input.Substring(1);
     }
 }

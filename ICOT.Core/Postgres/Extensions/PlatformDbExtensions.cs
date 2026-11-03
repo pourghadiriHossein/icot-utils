@@ -1,8 +1,15 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Metadata.Conventions;
+using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using DotNetEnv;
 
 namespace ICOT.Core.Extensions;
@@ -76,11 +83,52 @@ public static class PlatformDbExtensions
         services.AddDbContextPool<TContext>((sp, options) =>
         {
             options.UseNpgsql(dataSource);
+            ((IDbContextOptionsBuilderInfrastructure)options).AddOrUpdateExtension(new SnakeCaseNamingOptionsExtension());
             options.AddInterceptors(sp.GetRequiredService<ICOT.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>());
             options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
         }, poolSize: 1024);
 
         return services;
+    }
+
+    /// <summary>
+    /// Applies snake_case column naming across all entity properties in the ModelBuilder.
+    /// </summary>
+    public static void ApplySnakeCaseColumnNames(this ModelBuilder modelBuilder)
+    {
+        foreach (var entity in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entity.GetDeclaredProperties())
+            {
+                property.SetColumnName(ToSnakeCase(property.Name));
+            }
+        }
+    }
+
+    public static string ToSnakeCase(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return input;
+
+        var sb = new StringBuilder(input.Length + 8);
+        for (int i = 0; i < input.Length; i++)
+        {
+            char c = input[i];
+            if (char.IsUpper(c))
+            {
+                if (i > 0 && input[i - 1] != '_' &&
+                    (char.IsLower(input[i - 1]) || char.IsDigit(input[i - 1]) ||
+                     (i + 1 < input.Length && char.IsLower(input[i + 1]))))
+                {
+                    sb.Append('_');
+                }
+                sb.Append(char.ToLowerInvariant(c));
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>
@@ -99,6 +147,56 @@ public static class PlatformDbExtensions
         catch (Exception ex)
         {
             Console.WriteLine($"⚠️ [Notice] Could not auto-apply migrations for {typeof(TContext).Name} ({ex.Message}). Service will continue startup.");
+        }
+    }
+}
+
+internal sealed class SnakeCaseNamingOptionsExtension : IDbContextOptionsExtension
+{
+    private DbContextOptionsExtensionInfo? _info;
+
+    public DbContextOptionsExtensionInfo Info => _info ??= new ExtensionInfo(this);
+
+    public void ApplyServices(IServiceCollection services)
+    {
+        services.TryAddEnumerable(ServiceDescriptor.Scoped<IConventionSetPlugin, SnakeCaseConventionSetPlugin>());
+    }
+
+    public void Validate(IDbContextOptions options) { }
+
+    private sealed class ExtensionInfo : DbContextOptionsExtensionInfo
+    {
+        public ExtensionInfo(IDbContextOptionsExtension extension) : base(extension) { }
+        public override bool IsDatabaseProvider => false;
+        public override string LogFragment => "using snake_case column naming ";
+        public override int GetServiceProviderHashCode() => 0;
+        public override bool ShouldUseSameServiceProvider(DbContextOptionsExtensionInfo other) => other is ExtensionInfo;
+        public override void PopulateDebugInfo(System.Collections.Generic.IDictionary<string, string> debugInfo)
+        {
+            debugInfo["Platform:SnakeCaseColumns"] = "1";
+        }
+    }
+}
+
+internal sealed class SnakeCaseConventionSetPlugin : IConventionSetPlugin
+{
+    public ConventionSet ModifyConventions(ConventionSet conventionSet)
+    {
+        conventionSet.ModelFinalizingConventions.Add(new SnakeCaseColumnFinalizingConvention());
+        return conventionSet;
+    }
+}
+
+internal sealed class SnakeCaseColumnFinalizingConvention : IModelFinalizingConvention
+{
+    public void ProcessModelFinalizing(IConventionModelBuilder modelBuilder, IConventionContext<IConventionModelBuilder> context)
+    {
+        foreach (var entityType in modelBuilder.Metadata.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetDeclaredProperties())
+            {
+                property.Builder.HasColumnName(PlatformDbExtensions.ToSnakeCase(property.Name));
+            }
         }
     }
 }

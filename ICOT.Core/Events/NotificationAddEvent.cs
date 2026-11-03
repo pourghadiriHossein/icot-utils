@@ -26,10 +26,10 @@ public class NotificationAddEvent
 
 public class NotificationAddEventData
 {
-    [JsonPropertyName("workspace_id")]
+    [JsonPropertyName("workspaceId")]
     public Guid? WorkspaceId { get; set; }
 
-    [JsonPropertyName("account_id")]
+    [JsonPropertyName("accountId")]
     public Guid? AccountId { get; set; }
 
     [JsonPropertyName("service")]

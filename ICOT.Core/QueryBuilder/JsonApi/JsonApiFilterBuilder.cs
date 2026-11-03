@@ -564,16 +564,8 @@ public static class JsonApiFilterBuilder
     private static string ToPascalCase(string input)
     {
         if (string.IsNullOrEmpty(input)) return input;
-        
-        var words = input.Split(new[] { '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
-        for (int i = 0; i < words.Length; i++)
-        {
-            if (words[i].Length > 0)
-            {
-                words[i] = char.ToUpper(words[i][0]) + words[i].Substring(1).ToLower();
-            }
-        }
-        return string.Join("", words);
+        if (input.Length == 1) return input.ToUpperInvariant();
+        return char.ToUpperInvariant(input[0]) + input.Substring(1);
     }
 
     private static object? ConvertValue(string value, Type targetType)

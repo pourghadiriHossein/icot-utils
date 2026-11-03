@@ -87,16 +87,16 @@ public class GlobalExceptionHandler : IExceptionHandler
             var meta = new Dictionary<string, object?>
             {
                 ["source"] = "http",
-                ["exception_type"] = exception.GetType().FullName,
-                ["stack_trace"] = exception.StackTrace,
-                ["inner_exception"] = exception.InnerException?.Message,
+                ["exceptionType"] = exception.GetType().FullName,
+                ["stackTrace"] = exception.StackTrace,
+                ["innerException"] = exception.InnerException?.Message,
                 ["path"] = httpContext.Request.Path.Value,
                 ["method"] = httpContext.Request.Method,
                 ["query"] = httpContext.Request.QueryString.Value,
-                ["request_id"] = httpContext.Request.Headers["x-request"].ToString() is { Length: > 0 } req ? req : null,
-                ["workspace_id"] = httpContext.Request.Headers["x-workspace"].ToString() is { Length: > 0 } ws ? ws : null,
-                ["account_id"] = httpContext.Request.Headers["x-account"].ToString() is { Length: > 0 } acc ? acc : null,
-                ["client_ip"] = httpContext.Request.Headers["x-forwarded-ip"].ToString() is { Length: > 0 } ip ? ip : httpContext.Connection.RemoteIpAddress?.ToString()
+                ["requestId"] = httpContext.Request.Headers["x-request"].ToString() is { Length: > 0 } req ? req : null,
+                ["workspaceId"] = httpContext.Request.Headers["x-workspace"].ToString() is { Length: > 0 } ws ? ws : null,
+                ["accountId"] = httpContext.Request.Headers["x-account"].ToString() is { Length: > 0 } acc ? acc : null,
+                ["clientIp"] = httpContext.Request.Headers["x-forwarded-ip"].ToString() is { Length: > 0 } ip ? ip : httpContext.Connection.RemoteIpAddress?.ToString()
             };
 
             // Delegate error event publishing to IPlatformErrorPublisher (SRP & DIP)

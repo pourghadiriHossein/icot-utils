@@ -54,9 +54,8 @@ public static class JsonApiSoftDeleteBuilder
             return query;
         }
 
-        // 3. If caller explicitly passed a filter on deleted_at in options.Filter, do not override it
+        // 3. If caller explicitly passed a filter on deletedAt in options.Filter, do not override it
         if (options?.Filter != null && (
-            options.Filter.ContainsKey("deleted_at") ||
             options.Filter.ContainsKey("deletedAt") ||
             options.Filter.ContainsKey("DeletedAt")))
         {

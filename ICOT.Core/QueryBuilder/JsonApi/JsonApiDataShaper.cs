@@ -240,9 +240,6 @@ public static class JsonApiDataShaper
         if (string.Equals(prop.Name, ToPascalCase(cleanField), StringComparison.OrdinalIgnoreCase))
             return true;
 
-        if (string.Equals(ToSnakeCase(prop.Name), cleanField, StringComparison.OrdinalIgnoreCase))
-            return true;
-
         var jsonPropAttr = prop.GetCustomAttribute<JsonPropertyNameAttribute>();
         if (jsonPropAttr != null && string.Equals(jsonPropAttr.Name, cleanField, StringComparison.OrdinalIgnoreCase))
             return true;
@@ -271,9 +268,6 @@ public static class JsonApiDataShaper
         if (cleanField.Contains('.')) return false;
 
         if (string.Equals(key, cleanField, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        if (string.Equals(ToSnakeCase(key), cleanField, StringComparison.OrdinalIgnoreCase))
             return true;
 
         if (string.Equals(ToPascalCase(key), ToPascalCase(cleanField), StringComparison.OrdinalIgnoreCase))
@@ -318,42 +312,11 @@ public static class JsonApiDataShaper
         return char.ToLowerInvariant(input[0]) + input.Substring(1);
     }
 
-    private static string ToSnakeCase(string input)
-    {
-        if (string.IsNullOrEmpty(input)) return input;
-        var sb = new System.Text.StringBuilder();
-        for (int i = 0; i < input.Length; i++)
-        {
-            char c = input[i];
-            if (char.IsUpper(c))
-            {
-                if (i > 0 && input[i - 1] != '_' && input[i - 1] != '-')
-                {
-                    sb.Append('_');
-                }
-                sb.Append(char.ToLowerInvariant(c));
-            }
-            else
-            {
-                sb.Append(c);
-            }
-        }
-        return sb.ToString();
-    }
-
     private static string ToPascalCase(string input)
     {
         if (string.IsNullOrEmpty(input)) return input;
-        
-        var words = input.Split(new[] { '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
-        for (int i = 0; i < words.Length; i++)
-        {
-            if (words[i].Length > 0)
-            {
-                words[i] = char.ToUpper(words[i][0]) + words[i].Substring(1).ToLower();
-            }
-        }
-        return string.Join("", words);
+        if (input.Length == 1) return input.ToUpperInvariant();
+        return char.ToUpperInvariant(input[0]) + input.Substring(1);
     }
 
     private static bool IsSimpleType(Type type)

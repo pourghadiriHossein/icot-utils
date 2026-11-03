@@ -13,7 +13,7 @@ The backbone of the microservice architecture. It provides standardized behavior
 - **OpenAPI & Scalar Docs**: `PlatformApiExtensions.cs` configures OpenAPI. It includes an `OperationTransformer` that globally injects `x-account`, `x-language`, and `x-workspace` as default header parameters into all endpoints across all microservices. **Crucially, because .NET 9's Microsoft.AspNetCore.OpenApi does not natively map XML comments or Minimal API summary attributes to MVC Controllers**, this transformer explicitly extracts `[EndpointSummary("...")]` and `[EndpointDescription("...")]` (from `Microsoft.AspNetCore.Http`) and applies them to the OpenAPI schema. When documenting endpoints, agents **MUST** use these attributes instead of C# XML comments (`///`). Internal service-to-service endpoints MUST NOT appear in Scalar documentation and must be decorated with `[ApiExplorerSettings(IgnoreApi = true)]`.
 - **Proxy Configuration**: Configures `ForwardedHeadersOptions` to trust the internal API Gateway (YARP), ensuring Swagger generates correct HTTPS/Host URLs.
 - **Messaging**: Handles inter-service communication using MassTransit and RabbitMQ.
-- **EF Core Interceptors & DbContext Pooling**: `PlatformSaveChangesInterceptor` is registered as a stateless `Singleton` with `IHttpContextAccessor`, bypassing external HTTP validation calls to ensure high-performance in-memory auditing (`CreatedBy`, `UpdatedBy`, `UpdatedAt`). `AddPlatformDbContext` uses `AddDbContextPool` with a pool size of 1024, compatible with design-time EF CLI tooling and root service providers.
+- **EF Core Interceptors, DbContext Pooling & SnakeCase Column Naming**: `PlatformSaveChangesInterceptor` is registered as a stateless `Singleton` with `IHttpContextAccessor`, bypassing external HTTP validation calls to ensure high-performance in-memory auditing (`CreatedBy`, `UpdatedBy`, `UpdatedAt`). `AddPlatformDbContext` uses `AddDbContextPool` with a pool size of 1024 and automatically registers `SnakeCaseNamingOptionsExtension` (`IModelFinalizingConvention`) alongside `ApplySnakeCaseColumnNames` so all `PascalCase` C# entity properties map to `snake_case` PostgreSQL columns.
 
 ## 🛡️ Security & Tenant Isolation (TenantValidationMiddleware)
 A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universally enforces multi-tenancy rules across all microservices before requests even reach the controllers:
@@ -21,7 +21,7 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
 - **x-platform == "true"**: The caller has supreme privileges. They bypass `x-workspace` restrictions and can view/modify any workspace data.
 - **x-platform != "true"**: The caller is a tenant.
   - The `x-workspace` header MUST be present and valid. If missing, the middleware returns `403 Forbidden`.
-  - The middleware **dynamically injects** `workspaceId` and `filter[workspace_id]` into the Request's QueryString using the value from the `x-workspace` header. This automatically forces any `Index` endpoints (or `JsonApiQueryOptions` filters) to be strictly scoped to the tenant's workspace.
+  - The middleware **dynamically injects** `workspaceId` and `filter[workspaceId]` into the Request's QueryString using the value from the `x-workspace` header. This automatically forces any `Index` endpoints (or `JsonApiQueryOptions` filters) to be strictly scoped to the tenant's workspace.
 
 ## ⚠️ Development Rules (MUST READ)
 
