@@ -8,7 +8,9 @@ public enum PlatformHttpMethod
     Delete,
     Patch,
     Options,
-    Head
+    Head,
+    Ws,
+    WS = Ws
 }
 
 public static class PlatformHttpMethodExtensions
@@ -22,6 +24,7 @@ public static class PlatformHttpMethodExtensions
         PlatformHttpMethod.Patch => "patch",
         PlatformHttpMethod.Options => "options",
         PlatformHttpMethod.Head => "head",
+        PlatformHttpMethod.Ws => "ws",
         _ => method.ToString().ToLowerInvariant()
     };
 }
