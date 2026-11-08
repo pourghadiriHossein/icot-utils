@@ -83,6 +83,10 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
 - **Notification Type Enum (`NotificationType`)**: Defined in `ICOT.Core.Utils.Enums.NotificationType` (`info`, `warning`, `danger`, `success`).
 - **Publisher Abstraction (`IPlatformNotificationPublisher`)**: Defined in `ICOT.Core.Messaging.Services.IPlatformNotificationPublisher` and implemented by `MassTransitNotificationPublisher`. Registered as a Singleton in `AddPlatformApiStandard`. Microservices can inject `IPlatformNotificationPublisher` to easily dispatch user/workspace notifications without coupling to queue topologies or manual message construction.
 
+### ⚡ Centralized Platform WebSocket Messaging (`ws:send`)
+- **Event Contract (`WebSocketSendEvent`)**: Defined in `ICOT.Core.Events.WebSocketSendEvent` and `WebSocketSendEventData`. Uses `Event = "ws:send"` with priority 1, dispatched to `API_GATEWAY_QUEUE` (`icot_gateway_queue`).
+- **Publisher Abstraction (`IPlatformWebSocketPublisher`)**: Defined in `ICOT.Core.Messaging.Services.IPlatformWebSocketPublisher` and implemented by `MassTransitWebSocketPublisher`. Registered as a Singleton in `AddPlatformApiStandard`. Any microservice can inject `IPlatformWebSocketPublisher` to dispatch real-time WebSocket push messages to specific workspaces, private/public rooms, accounts, or signatures.
+
 ### 🚀 Single-Port Kestrel Hosting & Inter-Service gRPC Architecture
 - **Single-Port Architecture**: Every microservice listens on a single port specified by `<SERVICE>_SERVICE_URL` (e.g. `http://localhost:5005`). No dual ports, no `port + 100`, and no separate `_GRPC_PORT` or `_GRPC_URL` variables.
 - **Kestrel Protocol Setup (`ConfigurePlatformHost`)**:

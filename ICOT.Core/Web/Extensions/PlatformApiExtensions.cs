@@ -182,6 +182,8 @@ public static class PlatformApiExtensions
             new ICOT.Core.Messaging.Services.MassTransitErrorPublisher(sp, sp.GetService<Microsoft.Extensions.Logging.ILogger<ICOT.Core.Messaging.Services.MassTransitErrorPublisher>>()));
         services.AddSingleton<ICOT.Core.Messaging.Services.IPlatformNotificationPublisher>(sp =>
             new ICOT.Core.Messaging.Services.MassTransitNotificationPublisher(sp, sp.GetService<Microsoft.Extensions.Logging.ILogger<ICOT.Core.Messaging.Services.MassTransitNotificationPublisher>>()));
+        services.AddSingleton<ICOT.Core.Messaging.Services.IPlatformWebSocketPublisher>(sp =>
+            new ICOT.Core.Messaging.Services.MassTransitWebSocketPublisher(sp, sp.GetService<Microsoft.Extensions.Logging.ILogger<ICOT.Core.Messaging.Services.MassTransitWebSocketPublisher>>()));
         services.AddSingleton<ICOT.Core.Middlewares.IExceptionResponseMapper, ICOT.Core.Middlewares.DefaultExceptionResponseMapper>();
         services.AddSingleton<ICOT.Core.Middlewares.ITenantPolicyValidator, ICOT.Core.Middlewares.DefaultTenantPolicyValidator>();
         services.AddSingleton<ICOT.Core.Behaviors.ILogPayloadSanitizer, ICOT.Core.Behaviors.DefaultLogPayloadSanitizer>();
