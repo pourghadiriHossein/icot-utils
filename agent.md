@@ -83,6 +83,10 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
 - **Notification Type Enum (`NotificationType`)**: Defined in `ICOT.Core.Utils.Enums.NotificationType` (`info`, `warning`, `danger`, `success`).
 - **Publisher Abstraction (`IPlatformNotificationPublisher`)**: Defined in `ICOT.Core.Messaging.Services.IPlatformNotificationPublisher` and implemented by `MassTransitNotificationPublisher`. Registered as a Singleton in `AddPlatformApiStandard`. Microservices can inject `IPlatformNotificationPublisher` to easily dispatch user/workspace notifications without coupling to queue topologies or manual message construction.
 
+### 📥 Centralized Platform Queue Execution Publishing (`queue:add`)
+- **Event Contract (`QueueAddEvent`)**: Defined in `ICOT.Core.Events.QueueAddEvent` and `QueueAddEventData`. Uses `Event = "queue:add"` with priority 2, dispatched to `ACTION_SERVICE_QUEUE` (`icot_action_queue`).
+- **Publisher Abstraction (`IPlatformQueuePublisher`)**: Defined in `ICOT.Core.Messaging.Services.IPlatformQueuePublisher` and implemented by `MassTransitQueuePublisher`. Registered as a Singleton in `AddPlatformApiStandard`. Any microservice can inject `IPlatformQueuePublisher` to delegate asynchronous HTTP actions and long-running operations to `action-service` without constructing low-level bus messages.
+
 ### ⚡ Centralized Platform WebSocket Messaging (`ws:send`)
 - **Event Contract (`WebSocketSendEvent`)**: Defined in `ICOT.Core.Events.WebSocketSendEvent` and `WebSocketSendEventData`. Uses `Event = "ws:send"` with priority 1, dispatched to `API_GATEWAY_QUEUE` (`icot_gateway_queue`).
 - **Publisher Abstraction (`IPlatformWebSocketPublisher`)**: Defined in `ICOT.Core.Messaging.Services.IPlatformWebSocketPublisher` and implemented by `MassTransitWebSocketPublisher`. Registered as a Singleton in `AddPlatformApiStandard`. Any microservice can inject `IPlatformWebSocketPublisher` to dispatch real-time WebSocket push messages to specific workspaces, private/public rooms, accounts, or signatures.
