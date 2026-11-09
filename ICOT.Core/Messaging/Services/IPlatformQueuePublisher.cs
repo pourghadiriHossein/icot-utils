@@ -80,7 +80,7 @@ public class MassTransitQueuePublisher : IPlatformQueuePublisher
                          ?? "icot_action_queue";
 
             var sendEndpoint = await provider.GetSendEndpoint(new Uri($"queue:{queueName}"));
-            await sendEndpoint.Send(queueEvent, cancellationToken);
+            await sendEndpoint.Send(queueEvent, ctx => ctx.SetPriority((byte)Math.Clamp(queueEvent.Priority, 0, 10)), cancellationToken);
         }
         catch (Exception ex)
         {

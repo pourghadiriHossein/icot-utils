@@ -86,7 +86,7 @@ public class LogAddBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, T
             try
             {
                 var sendEndpoint = await _sendEndpointProvider.GetSendEndpoint(new Uri($"queue:{queueName}"));
-                await sendEndpoint.Send(logEvent, cancellationToken);
+                await sendEndpoint.Send(logEvent, ctx => ctx.SetPriority((byte)Math.Clamp(logEvent.Priority, 0, 10)), cancellationToken);
             }
             catch (Exception ex)
             {

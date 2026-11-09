@@ -1,6 +1,7 @@
 using System;
 using DotNetEnv;
 using MassTransit;
+using MassTransit.RabbitMqTransport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace ICOT.Core.Utils.Services;
@@ -14,6 +15,15 @@ public static class RabbitMqExtensions
         services.AddMassTransit(x =>
         {
             configure?.Invoke(x);
+
+            // Automatically configure all endpoints for RabbitMQ priority queues (x-max-priority = 10)
+            x.AddConfigureEndpointsCallback((context, name, endpointCfg) =>
+            {
+                if (endpointCfg is IRabbitMqReceiveEndpointConfigurator rmq)
+                {
+                    rmq.EnablePriority(10);
+                }
+            });
 
             x.UsingRabbitMq((context, cfg) =>
             {

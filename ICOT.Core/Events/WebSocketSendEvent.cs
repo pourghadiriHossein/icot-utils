@@ -9,14 +9,14 @@ public class WebSocketSendEvent
     public string Event { get; set; } = "ws:send";
 
     [JsonPropertyName("priority")]
-    public int Priority { get; set; } = 1;
+    public int Priority { get; set; } = 2;
 
     [JsonPropertyName("data")]
     public WebSocketSendEventData Data { get; set; } = new();
 
     public WebSocketSendEvent() { }
 
-    public WebSocketSendEvent(WebSocketSendEventData data, int priority = 1)
+    public WebSocketSendEvent(WebSocketSendEventData data, int priority = 2)
     {
         Priority = priority;
         Data = data;

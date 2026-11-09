@@ -15,14 +15,14 @@ namespace ICOT.Core.Messaging.Services;
 public interface IPlatformWebSocketPublisher
 {
     Task PublishWebSocketMessageAsync(WebSocketSendEvent wsEvent, CancellationToken cancellationToken = default);
-    Task PublishWebSocketMessageAsync(WebSocketSendEventData wsData, int priority = 1, CancellationToken cancellationToken = default);
+    Task PublishWebSocketMessageAsync(WebSocketSendEventData wsData, int priority = 2, CancellationToken cancellationToken = default);
     Task PublishWebSocketMessageAsync(
         Guid workspaceId,
         string scope,
         object message,
         Guid? accountId = null,
         string? signature = null,
-        int priority = 1,
+        int priority = 2,
         CancellationToken cancellationToken = default);
 }
 
@@ -78,7 +78,7 @@ public class MassTransitWebSocketPublisher : IPlatformWebSocketPublisher
                          ?? "icot_gateway_queue";
 
             var sendEndpoint = await provider.GetSendEndpoint(new Uri($"queue:{queueName}"));
-            await sendEndpoint.Send(wsEvent, cancellationToken);
+            await sendEndpoint.Send(wsEvent, ctx => ctx.SetPriority((byte)Math.Clamp(wsEvent.Priority, 0, 10)), cancellationToken);
         }
         catch (Exception ex)
         {
@@ -86,7 +86,7 @@ public class MassTransitWebSocketPublisher : IPlatformWebSocketPublisher
         }
     }
 
-    public Task PublishWebSocketMessageAsync(WebSocketSendEventData wsData, int priority = 1, CancellationToken cancellationToken = default)
+    public Task PublishWebSocketMessageAsync(WebSocketSendEventData wsData, int priority = 2, CancellationToken cancellationToken = default)
     {
         var wsEvent = new WebSocketSendEvent(wsData, priority);
         return PublishWebSocketMessageAsync(wsEvent, cancellationToken);
@@ -98,7 +98,7 @@ public class MassTransitWebSocketPublisher : IPlatformWebSocketPublisher
         object message,
         Guid? accountId = null,
         string? signature = null,
-        int priority = 1,
+        int priority = 2,
         CancellationToken cancellationToken = default)
     {
         var data = new WebSocketSendEventData

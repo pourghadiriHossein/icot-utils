@@ -82,7 +82,7 @@ public class MassTransitNotificationPublisher : IPlatformNotificationPublisher
                          ?? "icot_action_queue";
 
             var sendEndpoint = await provider.GetSendEndpoint(new Uri($"queue:{queueName}"));
-            await sendEndpoint.Send(notificationEvent, cancellationToken);
+            await sendEndpoint.Send(notificationEvent, ctx => ctx.SetPriority((byte)Math.Clamp(notificationEvent.Priority, 0, 10)), cancellationToken);
         }
         catch (Exception ex)
         {

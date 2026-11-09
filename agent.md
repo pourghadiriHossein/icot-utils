@@ -88,9 +88,18 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
 - **Publisher Abstraction (`IPlatformQueuePublisher`)**: Defined in `ICOT.Core.Messaging.Services.IPlatformQueuePublisher` and implemented by `MassTransitQueuePublisher`. Registered as a Singleton in `AddPlatformApiStandard`. Any microservice can inject `IPlatformQueuePublisher` to delegate asynchronous HTTP actions and long-running operations to `action-service` without constructing low-level bus messages.
 
 ### ⚡ Centralized Platform WebSocket Messaging (`ws:send`)
-- **Event Contract (`WebSocketSendEvent`)**: Defined in `ICOT.Core.Events.WebSocketSendEvent` and `WebSocketSendEventData`. Uses `Event = "ws:send"` with priority 1, dispatched to `API_GATEWAY_QUEUE` (`icot_gateway_queue`).
+- **Event Contract (`WebSocketSendEvent`)**: Defined in `ICOT.Core.Events.WebSocketSendEvent` and `WebSocketSendEventData`. Uses `Event = "ws:send"` with default priority 2, dispatched to `API_GATEWAY_QUEUE` (`icot_gateway_queue`).
 - **Publisher Abstraction (`IPlatformWebSocketPublisher`)**: Defined in `ICOT.Core.Messaging.Services.IPlatformWebSocketPublisher` and implemented by `MassTransitWebSocketPublisher`. Registered as a Singleton in `AddPlatformApiStandard`. Any microservice can inject `IPlatformWebSocketPublisher` to dispatch real-time WebSocket push messages to specific workspaces, private/public rooms, accounts, or signatures.
 - **WebSocket HTTP Enum (`PlatformHttpMethod.Ws` / `WS`)**: Added `Ws` and alias `WS = Ws` to `PlatformHttpMethod` in `ICOT.Core.Utils.Enums`. Allows controller WebSocket endpoints to declare `[RegistryEndpoint(PlatformHttpMethod.Ws, ...)]`, enabling load/gather endpoint generators to dynamically emit `"method": "ws"`, `"protocol": "wss://"` (for HTTPS) or `"ws://"` (for HTTP), and corresponding routes.
+
+### 📶 RabbitMQ Priority Queues & AMQP Transport-Level Priority (`x-max-priority = 10`) (2026-11-09)
+- **Automatic Priority Queue Declaration**: In `RabbitMqExtensions.AddPlatformMassTransit`, registered `x.AddConfigureEndpointsCallback` on `IBusRegistrationConfigurator`. Every RabbitMQ receive endpoint across all microservices is automatically configured with `rmq.EnablePriority(10)` (`x-max-priority = 10`).
+- **Transport-Level AMQP Priority Injection**: Updated all platform publishers (`MassTransitWebSocketPublisher`, `MassTransitQueuePublisher`, `MassTransitNotificationPublisher`, `MassTransitErrorPublisher`, and `LogAddBehavior`) to explicitly set the AMQP basic properties priority (`ctx => ctx.SetPriority((byte)Math.Clamp(event.Priority, 0, 10))`) on `sendEndpoint.Send`.
+- **Priority Hierarchy**:
+  - `QueueAddEvent` (`queue:add`): Priority 2 (processed ahead of bulk logs)
+  - `WebSocketSendEvent` (`ws:send`): Priority 2 (real-time push notifications delivered ahead of bulk logging)
+  - `LogAddEvent` (`log:add`), `LogErrorEvent` (`log:error`), `RequestAddEvent` (`request:add`): Priority 1 (lowest priority background logging)
+- **Queue Recreation Notice**: Because queue arguments are immutable in RabbitMQ, when deploying this update, existing empty queues (`icot_action_queue`, `icot_gateway_queue`, etc.) must be deleted or re-declared once so RabbitMQ creates them with the `x-max-priority: 10` argument.
 
 ### 🚀 Single-Port Kestrel Hosting & Inter-Service gRPC Architecture
 - **Single-Port Architecture**: Every microservice listens on a single port specified by `<SERVICE>_SERVICE_URL` (e.g. `http://localhost:5005`). No dual ports, no `port + 100`, and no separate `_GRPC_PORT` or `_GRPC_URL` variables.
