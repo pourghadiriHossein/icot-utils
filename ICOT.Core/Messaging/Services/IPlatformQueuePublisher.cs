@@ -79,7 +79,7 @@ public class MassTransitQueuePublisher : IPlatformQueuePublisher
                          ?? DotNetEnv.Env.GetString("ACTION_SERVICE_QUEUE")
                          ?? "icot_action_queue";
 
-            var sendEndpoint = await provider.GetSendEndpoint(new Uri($"queue:{queueName}"));
+            var sendEndpoint = await provider.GetSendEndpoint(new Uri($"exchange:{queueName}"));
             await sendEndpoint.Send(queueEvent, ctx => ctx.SetPriority((byte)Math.Clamp(queueEvent.Priority, 0, 10)), cancellationToken);
         }
         catch (Exception ex)

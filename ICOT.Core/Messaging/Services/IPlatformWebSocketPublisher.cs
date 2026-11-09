@@ -77,7 +77,7 @@ public class MassTransitWebSocketPublisher : IPlatformWebSocketPublisher
                          ?? DotNetEnv.Env.GetString("API_GATEWAY_QUEUE") 
                          ?? "icot_gateway_queue";
 
-            var sendEndpoint = await provider.GetSendEndpoint(new Uri($"queue:{queueName}"));
+            var sendEndpoint = await provider.GetSendEndpoint(new Uri($"exchange:{queueName}"));
             await sendEndpoint.Send(wsEvent, ctx => ctx.SetPriority((byte)Math.Clamp(wsEvent.Priority, 0, 10)), cancellationToken);
         }
         catch (Exception ex)

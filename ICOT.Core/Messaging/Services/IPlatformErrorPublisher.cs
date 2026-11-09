@@ -89,7 +89,7 @@ public class MassTransitErrorPublisher : IPlatformErrorPublisher
                 }
             };
 
-            var sendEndpoint = await provider.GetSendEndpoint(new Uri($"queue:{queueName}"));
+            var sendEndpoint = await provider.GetSendEndpoint(new Uri($"exchange:{queueName}"));
             await sendEndpoint.Send(errorEvent, ctx => ctx.SetPriority((byte)Math.Clamp(errorEvent.Priority, 0, 10)), cancellationToken);
         }
         catch (Exception ex)
