@@ -26,6 +26,9 @@ public class QueueAddEvent
 
 public class QueueAddEventData
 {
+    [JsonPropertyName("queueId")]
+    public Guid? QueueId { get; set; }
+
     [JsonPropertyName("workspaceId")]
     public Guid? WorkspaceId { get; set; }
 
