@@ -23,6 +23,10 @@ public class ApiResponse<T>
     [JsonPropertyName("meta")]
     public object? Meta { get; set; }
 
+    [JsonPropertyName("errors")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string[]>? Errors { get; set; }
+
     [JsonPropertyName("exception")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public object? Exception { get; set; }
@@ -41,6 +45,17 @@ public class ApiResponse<T>
         Exception = exception;
     }
 
+    public ApiResponse(bool success, int code, string? message, T? data, object? meta, object? exception, Dictionary<string, string[]>? errors)
+    {
+        Success = success;
+        Code = code;
+        Message = message;
+        Data = data;
+        Meta = meta;
+        Exception = exception;
+        Errors = errors;
+    }
+
     // Static helper methods for quick building
     public static ApiResponse<T> Ok(T data, string? message = "Operation completed successfully", object? meta = null)
     {
@@ -50,6 +65,11 @@ public class ApiResponse<T>
     public static ApiResponse<T> Error(int code, string message, object? exception = null)
     {
         return new ApiResponse<T>(false, code, message, default, null, exception);
+    }
+
+    public static ApiResponse<T> ValidationError(Dictionary<string, string[]> errors, string message = "One or more validation errors occurred.")
+    {
+        return new ApiResponse<T>(false, 422, message, default, null, null, errors);
     }
 }
 
@@ -65,6 +85,11 @@ public class ApiResponse : ApiResponse<object>
     {
     }
 
+    public ApiResponse(bool success, int code, string? message, object? data, object? meta, object? exception, Dictionary<string, string[]>? errors) 
+        : base(success, code, message, data, meta, exception, errors)
+    {
+    }
+
     public static ApiResponse Ok(string? message = "Operation completed successfully")
     {
         return new ApiResponse(true, 200, message, null);
@@ -73,5 +98,10 @@ public class ApiResponse : ApiResponse<object>
     public static new ApiResponse Error(int code, string message, object? exception = null)
     {
         return new ApiResponse(false, code, message, null, null, exception);
+    }
+
+    public static new ApiResponse ValidationError(Dictionary<string, string[]> errors, string message = "One or more validation errors occurred.")
+    {
+        return new ApiResponse(false, 422, message, null, null, null, errors);
     }
 }

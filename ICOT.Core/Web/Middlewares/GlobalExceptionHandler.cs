@@ -55,7 +55,9 @@ public class GlobalExceptionHandler : IExceptionHandler
 
         // 2. Prepare the standardized response via IExceptionResponseMapper (SRP & OCP)
         var mapping = _responseMapper.Map(exception, _env.IsDevelopment());
-        var apiResponse = ApiResponse.Error(mapping.StatusCode, mapping.Message, mapping.Details);
+        var apiResponse = mapping.Errors != null && mapping.Errors.Count > 0
+            ? ApiResponse.ValidationError(mapping.Errors, mapping.Message)
+            : ApiResponse.Error(mapping.StatusCode, mapping.Message, mapping.Details);
 
         // 3. Write JSON response
         httpContext.Response.ContentType = "application/json";

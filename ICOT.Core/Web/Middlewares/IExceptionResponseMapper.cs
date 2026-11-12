@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.AspNetCore.Http;
 
 namespace ICOT.Core.Middlewares;
 
-public record ExceptionMappingResult(int StatusCode, string Message, object? Details);
+public record ExceptionMappingResult(int StatusCode, string Message, object? Details = null, Dictionary<string, string[]>? Errors = null);
 
 /// <summary>
 /// Abstraction for mapping runtime exceptions to HTTP status codes and API error messages (SRP & OCP).
@@ -23,9 +24,25 @@ public class DefaultExceptionResponseMapper : IExceptionResponseMapper
     {
         var statusCode = StatusCodes.Status500InternalServerError;
         var message = "An internal server error occurred.";
+        Dictionary<string, string[]>? errors = null;
 
         switch (exception)
         {
+            case Exceptions.ValidationException valEx:
+                statusCode = StatusCodes.Status422UnprocessableEntity;
+                message = valEx.Message;
+                errors = valEx.Errors.ToDictionary(k => k.Key, v => v.Value);
+                break;
+            case FluentValidation.ValidationException fluentEx:
+                statusCode = StatusCodes.Status422UnprocessableEntity;
+                message = "One or more validation errors occurred.";
+                errors = fluentEx.Errors
+                    .GroupBy(e => ToCamelCase(e.PropertyName))
+                    .ToDictionary(
+                        g => g.Key,
+                        g => g.Select(e => e.ErrorMessage).Distinct().ToArray()
+                    );
+                break;
             case ArgumentException:
                 statusCode = StatusCodes.Status422UnprocessableEntity;
                 message = exception.Message;
@@ -45,7 +62,7 @@ public class DefaultExceptionResponseMapper : IExceptionResponseMapper
         }
 
         object? details = null;
-        if (isDevelopment)
+        if (isDevelopment && errors == null)
         {
             details = new
             {
@@ -56,6 +73,33 @@ public class DefaultExceptionResponseMapper : IExceptionResponseMapper
             message = exception.Message;
         }
 
-        return new ExceptionMappingResult(statusCode, message, details);
+        return new ExceptionMappingResult(statusCode, message, details, errors);
+    }
+
+    private static string ToCamelCase(string str)
+    {
+        if (string.IsNullOrEmpty(str)) return str;
+        if (str.StartsWith("$.")) str = str.Substring(2);
+        else if (str.StartsWith("$")) str = str.Substring(1);
+
+        var parts = str.Split('.');
+        return string.Join(".", parts.Select(p =>
+        {
+            var bracketIndex = p.IndexOf('[');
+            if (bracketIndex > 0)
+            {
+                var prop = p.Substring(0, bracketIndex);
+                var rest = p.Substring(bracketIndex);
+                return ToCamelCaseSegment(prop) + rest;
+            }
+            return ToCamelCaseSegment(p);
+        }));
+    }
+
+    private static string ToCamelCaseSegment(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        if (s.Length == 1) return s.ToLowerInvariant();
+        return char.ToLowerInvariant(s[0]) + s.Substring(1);
     }
 }

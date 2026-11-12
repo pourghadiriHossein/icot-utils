@@ -215,13 +215,7 @@ public static class PlatformApiExtensions
         {
             options.InvalidModelStateResponseFactory = context =>
             {
-                var errors = context.ModelState
-                    .Where(e => e.Value?.Errors.Count > 0)
-                    .Select(e => e.Value!.Errors.First().ErrorMessage)
-                    .FirstOrDefault();
-
-                var message = errors ?? "One or more validation errors occurred.";
-                var response = ICOT.Core.Utils.Responses.ApiResponse.Error(422, message);
+                var response = ICOT.Core.Web.Helpers.ModelStateHelper.BuildValidationResponse(context);
                 return new Microsoft.AspNetCore.Mvc.ObjectResult(response)
                 {
                     StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status422UnprocessableEntity
@@ -230,7 +224,8 @@ public static class PlatformApiExtensions
         });
         
         services.AddHttpContextAccessor();
-        // 3. Register global MediatR behavior for logging
+        // 3. Register global MediatR behaviors for validation and logging
+        services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ICOT.Core.Behaviors.ValidationBehavior<,>));
         services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ICOT.Core.Behaviors.LogAddBehavior<,>));
         services.AddOpenApi(options =>
         {

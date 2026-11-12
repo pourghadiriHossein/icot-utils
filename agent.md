@@ -48,6 +48,31 @@ A critical part of `ICOT.Core` is the `TenantValidationMiddleware`. It universal
    - **Dependency Inversion Principle (DIP)**: High-level modules must never depend on low-level implementation details or framework-specific statics. Both must depend on abstractions (e.g., `IUserContextProvider`, `IEncryptionService`, `IPlatformErrorPublisher`).
    - **STRICT MANDATE**: For EVERY future change, addition, refactor, or deletion in `ICOT.Core`, the agent MUST audit the changes against SOLID principles. If ANY violation is detected, it MUST be resolved and refactored before release.
 
+### 🛡️ Unified Request Validation & HTTP 422 Error Handling (Two-Tier Architecture)
+`ICOT.Core` enforces a unified, two-tier validation system across all 13 microservices:
+1. **Model Binding & JSON Deserialization Layer (`ModelStateHelper`)**:
+   - Configured via `options.InvalidModelStateResponseFactory` in `PlatformApiExtensions.AddPlatformApiStandard`.
+   - Extracts exact failing fields and reasons from ASP.NET Core `ModelState` and System.Text.Json `JsonException.Path`.
+   - Converts all field keys to `camelCase` and strips internal prefixes (`$.`, `request.`, `command.`).
+   - Eliminates generic `"The request field is required."` messages when underlying fields failed deserialization.
+2. **Application CQRS Validation Layer (`ValidationBehavior` & `ValidationException`)**:
+   - Registered globally as `IPipelineBehavior<,>` in MediatR.
+   - Automatically executes all injected `IValidator<TRequest>` FluentValidation validators before command/query handlers run.
+   - On validation failure, groups errors by `camelCase` property name and throws `ICOT.Core.Exceptions.ValidationException`.
+   - `GlobalExceptionHandler` and `DefaultExceptionResponseMapper` intercept `ValidationException` (and `FluentValidation.ValidationException`), mapping them to HTTP 422 Unprocessable Entity with `ApiResponse.ValidationError(errors)`.
+3. **Standard HTTP 422 Schema**:
+   ```json
+   {
+     "success": false,
+     "code": 422,
+     "message": "One or more validation errors occurred.",
+     "errors": {
+       "startsAt": ["The value must be a valid time in 'HH:mm:ss' or 'HH:mm' format."],
+       "priority": ["Priority must be greater than or equal to 0."]
+     }
+   }
+   ```
+
 - **Standardized HTTP Status Codes**: All API controllers MUST adhere to the following network HTTP status codes:
   - Read All (GET): `200 OK`
   - Read One (GET): `200 OK`

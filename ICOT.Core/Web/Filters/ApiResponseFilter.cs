@@ -51,14 +51,16 @@ public class ApiResponseFilter : IAsyncResultFilter
                             var messageProp = valueType.GetProperty("Message");
                             var metaProp = valueType.GetProperty("Meta");
                             var exceptionProp = valueType.GetProperty("Exception");
+                            var errorsProp = valueType.GetProperty("Errors");
 
                             bool success = (bool)(successProp?.GetValue(objectResult.Value) ?? true);
                             int code = (int)(codeProp?.GetValue(objectResult.Value) ?? 200);
                             string? message = (string?)messageProp?.GetValue(objectResult.Value);
                             object? meta = metaProp?.GetValue(objectResult.Value);
                             object? exception = exceptionProp?.GetValue(objectResult.Value);
+                            Dictionary<string, string[]>? errors = (Dictionary<string, string[]>?)errorsProp?.GetValue(objectResult.Value);
 
-                            objectResult.Value = new ApiResponse<object>(success, code, message, shapedData, meta, exception);
+                            objectResult.Value = new ApiResponse<object>(success, code, message, shapedData, meta, exception, errors);
                         }
                     }
                 }
@@ -94,9 +96,29 @@ public class ApiResponseFilter : IAsyncResultFilter
             string defaultMessage = isSuccess ? "Operation completed successfully" : "An error occurred";
             
             // Try to extract a better error message if this is a ProblemDetails object
-            if (!isSuccess && payloadData is Microsoft.AspNetCore.Mvc.ProblemDetails problemDetails)
+            Dictionary<string, string[]>? validationErrors = null;
+            if (!isSuccess)
             {
-                defaultMessage = problemDetails.Title ?? "Validation failed";
+                if (payloadData is Microsoft.AspNetCore.Mvc.ValidationProblemDetails mvcValProblem)
+                {
+                    defaultMessage = mvcValProblem.Title ?? "One or more validation errors occurred.";
+                    validationErrors = mvcValProblem.Errors.ToDictionary(
+                        k => ToCamelCase(k.Key),
+                        v => v.Value
+                    );
+                }
+                else if (payloadData is Microsoft.AspNetCore.Http.HttpValidationProblemDetails httpValProblem)
+                {
+                    defaultMessage = httpValProblem.Title ?? "One or more validation errors occurred.";
+                    validationErrors = httpValProblem.Errors.ToDictionary(
+                        k => ToCamelCase(k.Key),
+                        v => v.Value
+                    );
+                }
+                else if (payloadData is Microsoft.AspNetCore.Mvc.ProblemDetails problemDetails)
+                {
+                    defaultMessage = problemDetails.Title ?? "Validation failed";
+                }
             }
 
             // Wrap in our standard generic response
@@ -108,7 +130,8 @@ public class ApiResponseFilter : IAsyncResultFilter
                 defaultMessage,                        // message
                 payloadData,                           // data
                 metaData,                              // meta
-                null                                   // exception
+                null,                                  // exception
+                validationErrors                       // errors
             });
 
             context.Result = new ObjectResult(wrappedResponse)
@@ -131,5 +154,32 @@ public class ApiResponseFilter : IAsyncResultFilter
         }
 
         await next();
+    }
+
+    private static string ToCamelCase(string str)
+    {
+        if (string.IsNullOrEmpty(str)) return str;
+        if (str.StartsWith("$.")) str = str.Substring(2);
+        else if (str.StartsWith("$")) str = str.Substring(1);
+
+        var parts = str.Split('.');
+        return string.Join(".", parts.Select(p =>
+        {
+            var bracketIndex = p.IndexOf('[');
+            if (bracketIndex > 0)
+            {
+                var prop = p.Substring(0, bracketIndex);
+                var rest = p.Substring(bracketIndex);
+                return ToCamelCaseSegment(prop) + rest;
+            }
+            return ToCamelCaseSegment(p);
+        }));
+    }
+
+    private static string ToCamelCaseSegment(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        if (s.Length == 1) return s.ToLowerInvariant();
+        return char.ToLowerInvariant(s[0]) + s.Substring(1);
     }
 }
