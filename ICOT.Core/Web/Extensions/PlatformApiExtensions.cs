@@ -11,6 +11,8 @@ using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using Microsoft.OpenApi;
 using System.Net.Http;
+using Sentry;
+using Sentry.AspNetCore;
 
 namespace ICOT.Core.Extensions;
 
@@ -92,6 +94,43 @@ public static class PlatformApiExtensions
         });
 
         AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+
+        // Configure Sentry Observability & Error Tracking
+        builder.WebHost.UseSentry(options =>
+        {
+            var dsn = Environment.GetEnvironmentVariable("SENTRY_DSN") ?? Env.GetString("SENTRY_DSN");
+            if (!string.IsNullOrWhiteSpace(dsn))
+            {
+                options.Dsn = dsn.Trim();
+            }
+
+            var debugStr = Environment.GetEnvironmentVariable("SENTRY_DEBUG") ?? Env.GetString("SENTRY_DEBUG");
+            if (bool.TryParse(debugStr, out var debug))
+            {
+                options.Debug = debug;
+            }
+
+            var tracesSampleRateStr = Environment.GetEnvironmentVariable("SENTRY__TRACESSAMPLERATE") 
+                ?? Environment.GetEnvironmentVariable("SENTRY_TRACES_SAMPLE_RATE") 
+                ?? Env.GetString("SENTRY_TRACES_SAMPLE_RATE");
+            if (!string.IsNullOrWhiteSpace(tracesSampleRateStr) &&
+                double.TryParse(tracesSampleRateStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var tracesSampleRate))
+            {
+                options.TracesSampleRate = tracesSampleRate;
+            }
+
+            var env = Environment.GetEnvironmentVariable("SENTRY_ENVIRONMENT") ?? Env.GetString("SENTRY_ENVIRONMENT");
+            if (!string.IsNullOrWhiteSpace(env))
+            {
+                options.Environment = env.Trim();
+            }
+
+            var release = Environment.GetEnvironmentVariable("SENTRY_RELEASE") ?? Env.GetString("SENTRY_RELEASE");
+            if (!string.IsNullOrWhiteSpace(release))
+            {
+                options.Release = release.Trim();
+            }
+        });
 
         Console.WriteLine($"🌐 [{serviceName.ToUpper()}] Configured to listen on {bindingUrl}");
 
