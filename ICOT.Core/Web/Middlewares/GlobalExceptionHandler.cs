@@ -80,6 +80,9 @@ public class GlobalExceptionHandler : IExceptionHandler
 
     private async Task PublishErrorSafelyAsync(HttpContext httpContext, string serviceName, Exception exception, CancellationToken cancellationToken)
     {
+        if (!MassTransitErrorPublisher.IsErrorLoggingEnabled())
+            return;
+
         try
         {
             // Prevent recursion if action-service error-logs endpoint itself fails

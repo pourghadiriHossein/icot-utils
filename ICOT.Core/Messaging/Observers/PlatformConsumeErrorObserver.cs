@@ -26,6 +26,9 @@ public class PlatformConsumeErrorObserver : IConsumeObserver
 
     public async Task ConsumeFault<T>(ConsumeContext<T> context, Exception exception) where T : class
     {
+        if (!MassTransitErrorPublisher.IsErrorLoggingEnabled())
+            return;
+
         // Prevent infinite loop if LogErrorEvent itself fails
         if (typeof(T) == typeof(LogErrorEvent) || context.Message is LogErrorEvent)
             return;

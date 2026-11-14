@@ -49,8 +49,24 @@ public class MassTransitErrorPublisher : IPlatformErrorPublisher
     public static MassTransitErrorPublisher FromSendEndpoint(ISendEndpointProvider directProvider, ILogger<MassTransitErrorPublisher>? logger = null)
         => new(directProvider, logger);
 
+    /// <summary>
+    /// Checks whether centralized RabbitMQ error logging (<c>log:error</c>) is enabled via the <c>LOG_ERRORS_ENABLED</c> environment variable.
+    /// Defaults to <c>false</c> when missing, empty, or set to any value other than <c>"true"</c>.
+    /// </summary>
+    public static bool IsErrorLoggingEnabled()
+    {
+        var rawValue = Environment.GetEnvironmentVariable("LOG_ERRORS_ENABLED")
+                    ?? DotNetEnv.Env.GetString("LOG_ERRORS_ENABLED");
+
+        return !string.IsNullOrWhiteSpace(rawValue) &&
+               string.Equals(rawValue.Trim().Trim('"', '\''), "true", StringComparison.OrdinalIgnoreCase);
+    }
+
     public async Task PublishErrorAsync(string serviceName, Exception exception, Dictionary<string, object?> meta, CancellationToken cancellationToken = default)
     {
+        if (!IsErrorLoggingEnabled())
+            return;
+
         try
         {
             ISendEndpointProvider? provider = _directProvider;
