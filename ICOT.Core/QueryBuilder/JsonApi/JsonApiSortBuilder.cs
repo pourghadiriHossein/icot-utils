@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Linq.Dynamic.Core;
+using System.Linq.Expressions;
 using System.Reflection;
 
 namespace ICOT.Core.JsonApi;
@@ -13,6 +15,8 @@ public static class JsonApiSortBuilder
 {
     public static IQueryable<T> ApplySort<T>(IQueryable<T> query, string? sortQuery) where T : class
     {
+        bool appliedExplicitSort = false;
+
         // 1. Explicit sort (?sort=-createdAt,title)
         if (!string.IsNullOrWhiteSpace(sortQuery))
         {
@@ -37,12 +41,12 @@ public static class JsonApiSortBuilder
             {
                 var sortExpression = string.Join(", ", validOrderByStrings);
                 query = query.OrderBy(sortExpression);
+                appliedExplicitSort = true;
             }
         }
 
-        // 2. Fallback sorting if none provided (required by EF Core for Skip/Take)
-        bool hasSort = !string.IsNullOrWhiteSpace(sortQuery);
-        if (!hasSort && !query.Expression.ToString().Contains("OrderBy"))
+        // 2. Fallback sorting if none was applied or ordering was erased (required by EF Core for Skip/Take)
+        if (!appliedExplicitSort && !HasOrdering(query.Expression))
         {
             var createdAtProp = typeof(T).GetProperty("CreatedAt", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
             var idProp = typeof(T).GetProperty("Id", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
@@ -55,9 +59,52 @@ public static class JsonApiSortBuilder
             {
                 query = query.OrderBy("Id descending");
             }
+            else
+            {
+                var fallbackProp = typeof(T)
+                    .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .FirstOrDefault(p =>
+                        p.CanRead &&
+                        p.GetIndexParameters().Length == 0 &&
+                        !Attribute.IsDefined(p, typeof(NotMappedAttribute)) &&
+                        (p.PropertyType.IsValueType || p.PropertyType == typeof(string)));
+
+                if (fallbackProp != null)
+                {
+                    query = query.OrderBy(fallbackProp.Name);
+                }
+            }
         }
 
         return query;
+    }
+
+    private static bool HasOrdering(Expression expression)
+    {
+        while (expression is MethodCallExpression methodCall)
+        {
+            var methodName = methodCall.Method.Name;
+            if (methodName is "OrderBy" or "OrderByDescending" or "ThenBy" or "ThenByDescending")
+            {
+                return true;
+            }
+
+            if (methodName == "Distinct")
+            {
+                return false;
+            }
+
+            if (methodCall.Arguments.Count > 0)
+            {
+                expression = methodCall.Arguments[0];
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return false;
     }
 
     private static string ToPascalCase(string input)
