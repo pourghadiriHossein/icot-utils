@@ -74,7 +74,7 @@ public static class PlatformDbExtensions
             }
         }
 
-        var connectionString = $"Host={host};Port={port};Database={finalDbName};Username={user};Password={pass};";
+        var connectionString = $"Host={host};Port={port};Database={finalDbName};Username={user};Password={pass};Pooling=true;Minimum Pool Size=2;Maximum Pool Size=100;Connection Idle Lifetime=300;Connection Pruning Interval=10;KeepAlive=30;Timeout=30;Command Timeout=30;";
 
         var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(connectionString);
         dataSourceBuilder.EnableDynamicJson();
@@ -82,7 +82,13 @@ public static class PlatformDbExtensions
 
         services.AddDbContextPool<TContext>((sp, options) =>
         {
-            options.UseNpgsql(dataSource);
+            options.UseNpgsql(dataSource, npgsqlOptions =>
+            {
+                npgsqlOptions.EnableRetryOnFailure(
+                    maxRetryCount: 3,
+                    maxRetryDelay: TimeSpan.FromSeconds(5),
+                    errorCodesToAdd: null);
+            });
             ((IDbContextOptionsBuilderInfrastructure)options).AddOrUpdateExtension(new SnakeCaseNamingOptionsExtension());
             options.AddInterceptors(sp.GetRequiredService<ICOT.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>());
             options.ConfigureWarnings(w => w.Ignore(
