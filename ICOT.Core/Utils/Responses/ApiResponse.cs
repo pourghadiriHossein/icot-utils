@@ -67,6 +67,11 @@ public class ApiResponse<T>
         return new ApiResponse<T>(false, code, message, default, null, exception);
     }
 
+    public static ApiResponse<T> ErrorWithData(int code, string message, T? data, object? exception = null)
+    {
+        return new ApiResponse<T>(false, code, message, data, null, exception);
+    }
+
     public static ApiResponse<T> ValidationError(Dictionary<string, string[]> errors, string message = "One or more validation errors occurred.")
     {
         return new ApiResponse<T>(false, 422, message, default, null, null, errors);
@@ -98,6 +103,11 @@ public class ApiResponse : ApiResponse<object>
     public static new ApiResponse Error(int code, string message, object? exception = null)
     {
         return new ApiResponse(false, code, message, null, null, exception);
+    }
+
+    public static new ApiResponse ErrorWithData(int code, string message, object? data, object? exception = null)
+    {
+        return new ApiResponse(false, code, message, data, null, exception);
     }
 
     public static new ApiResponse ValidationError(Dictionary<string, string[]> errors, string message = "One or more validation errors occurred.")

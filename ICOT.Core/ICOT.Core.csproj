@@ -39,6 +39,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Protobuf Include="Grpc/Protos/reference_check.proto" GrpcServices="Both" />
   </ItemGroup>
 
 </Project>

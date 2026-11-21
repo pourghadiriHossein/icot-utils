@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Scalar.AspNetCore;
 using DotNetEnv;
@@ -217,6 +218,7 @@ public static class PlatformApiExtensions
         // Core SOLID Abstractions
         services.AddSingleton<ICOT.Core.Utils.Services.IEncryptionService, ICOT.Core.Utils.Services.AesEncryptionService>();
         services.AddSingleton<ICOT.Core.Utils.Services.IUserContextProvider, ICOT.Core.Utils.Services.HttpContextUserContextProvider>();
+        services.AddSingleton<ICOT.Core.Utils.Services.IScopeContextProvider, ICOT.Core.Utils.Services.HttpContextScopeContextProvider>();
         services.AddSingleton<ICOT.Core.Messaging.Services.IPlatformErrorPublisher>(sp =>
             new ICOT.Core.Messaging.Services.MassTransitErrorPublisher(sp, sp.GetService<Microsoft.Extensions.Logging.ILogger<ICOT.Core.Messaging.Services.MassTransitErrorPublisher>>()));
         services.AddSingleton<ICOT.Core.Messaging.Services.IPlatformNotificationPublisher>(sp =>
@@ -243,6 +245,7 @@ public static class PlatformApiExtensions
         services.AddControllers(options => 
         {
             options.Filters.Add<ICOT.Core.Filters.ApiResponseFilter>();
+            options.Filters.Add<ICOT.Core.Filters.ForceDeleteScopeFilter>();
             options.Filters.Add(new Microsoft.AspNetCore.Mvc.ProducesAttribute("application/json"));
         })
         .AddJsonOptions(options =>
@@ -455,50 +458,99 @@ public static class PlatformApiExtensions
 
         var clientBuilder = services.AddGrpcClient<TClient>(options =>
         {
-            var cleanName = serviceName.Replace("Service", "", StringComparison.OrdinalIgnoreCase).Trim('_');
-            var upperName = cleanName.ToUpperInvariant();
-            if (upperName.Contains("GATEWAY") || upperName.Contains("API"))
-            {
-                upperName = "API_GATEWAY";
-            }
-
-            var urlKeys = new[]
-            {
-                $"{upperName}_SERVICE_URL",
-                $"{upperName}_URL",
-                $"POSTGRES_{upperName}_SERVICE_URL",
-                $"POSTGRES_{upperName}_URL"
-            };
-
-            string? rawUrl = null;
-            foreach (var key in urlKeys)
-            {
-                var val = Environment.GetEnvironmentVariable(key) ?? DotNetEnv.Env.GetString(key);
-                if (!string.IsNullOrWhiteSpace(val))
-                {
-                    rawUrl = val.Trim();
-                    break;
-                }
-            }
-
-            if (string.IsNullOrEmpty(rawUrl) || !Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri))
-            {
-                uri = new Uri("http://localhost:5000");
-            }
-
-            options.Address = uri;
-        })
-        .SetHandlerLifetime(TimeSpan.FromMinutes(15))
-        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
-        {
-            EnableMultipleHttp2Connections = true,
-            ConnectTimeout = TimeSpan.FromSeconds(5),
-            KeepAlivePingDelay = TimeSpan.FromSeconds(20),
-            KeepAlivePingTimeout = TimeSpan.FromSeconds(10),
-            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
-            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2)
+            options.Address = ResolveServiceUri(serviceName);
         });
+
+        return ConfigureGrpcClientBuilder(clientBuilder, enableRetry);
+    }
+
+    public static IHttpClientBuilder AddPlatformReferenceCheckClient(this IServiceCollection services, string serviceName, bool enableRetry = true)
+    {
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+
+        var clientName = ICOT.Core.Deletion.GrpcCrossServiceReferenceChecker.GetClientName(serviceName);
+        var clientBuilder = services.AddGrpcClient<ICOT.Core.Grpc.ReferenceCheck.ReferenceCheckGrpcService.ReferenceCheckGrpcServiceClient>(
+            clientName,
+            options =>
+            {
+                options.Address = ResolveServiceUri(serviceName);
+            });
+
+        services.TryAddScoped<ICOT.Core.Deletion.ICrossServiceReferenceChecker, ICOT.Core.Deletion.GrpcCrossServiceReferenceChecker>();
+
+        return ConfigureGrpcClientBuilder(clientBuilder, enableRetry);
+    }
+
+    public static IServiceCollection AddPlatformReferenceCheckClients(this IServiceCollection services, params string[] serviceNames)
+    {
+        var distinctServices = (serviceNames ?? Array.Empty<string>())
+            .Select(ICOT.Core.Deletion.GrpcCrossServiceReferenceChecker.NormalizeServiceName)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (distinctServices.Length == 0)
+        {
+            services.TryAddScoped<ICOT.Core.Deletion.ICrossServiceReferenceChecker, ICOT.Core.Deletion.NoOpCrossServiceReferenceChecker>();
+            return services;
+        }
+
+        foreach (var svc in distinctServices)
+        {
+            services.AddPlatformReferenceCheckClient(svc);
+        }
+
+        return services;
+    }
+
+    private static Uri ResolveServiceUri(string serviceName)
+    {
+        var normalized = ICOT.Core.Deletion.GrpcCrossServiceReferenceChecker.NormalizeServiceName(serviceName);
+        var upperName = normalized == "gateway"
+            ? "API_GATEWAY"
+            : normalized.Replace('-', '_').ToUpperInvariant();
+
+        var urlKeys = new[]
+        {
+            $"{upperName}_SERVICE_URL",
+            $"{upperName}_URL",
+            $"POSTGRES_{upperName}_SERVICE_URL",
+            $"POSTGRES_{upperName}_URL"
+        };
+
+        string? rawUrl = null;
+        foreach (var key in urlKeys)
+        {
+            var val = Environment.GetEnvironmentVariable(key) ?? DotNetEnv.Env.GetString(key);
+            if (!string.IsNullOrWhiteSpace(val))
+            {
+                rawUrl = val.Trim();
+                break;
+            }
+        }
+
+        if (string.IsNullOrEmpty(rawUrl) || !Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri))
+        {
+            uri = new Uri("http://localhost:5000");
+        }
+
+        return uri;
+    }
+
+    private static IHttpClientBuilder ConfigureGrpcClientBuilder(IHttpClientBuilder clientBuilder, bool enableRetry)
+    {
+        clientBuilder
+            .SetHandlerLifetime(TimeSpan.FromMinutes(15))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                EnableMultipleHttp2Connections = true,
+                ConnectTimeout = TimeSpan.FromSeconds(5),
+                KeepAlivePingDelay = TimeSpan.FromSeconds(20),
+                KeepAlivePingTimeout = TimeSpan.FromSeconds(10),
+                KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
+                PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2)
+            });
 
         var maxRetryAttempts = GetIntEnv("GRPC_RETRY_MAX_ATTEMPTS", 3, 0, 5);
         if (enableRetry && maxRetryAttempts > 1)

@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Http;
 
 namespace ICOT.Core.Middlewares;
 
-public record ExceptionMappingResult(int StatusCode, string Message, object? Details = null, Dictionary<string, string[]>? Errors = null);
+public record ExceptionMappingResult(int StatusCode, string Message, object? Details = null, Dictionary<string, string[]>? Errors = null, object? Data = null);
 
 /// <summary>
 /// Abstraction for mapping runtime exceptions to HTTP status codes and API error messages (SRP & OCP).
@@ -25,6 +25,7 @@ public class DefaultExceptionResponseMapper : IExceptionResponseMapper
         var statusCode = StatusCodes.Status500InternalServerError;
         var message = "An internal server error occurred.";
         Dictionary<string, string[]>? errors = null;
+        object? data = null;
 
         switch (exception)
         {
@@ -51,8 +52,17 @@ public class DefaultExceptionResponseMapper : IExceptionResponseMapper
                 statusCode = StatusCodes.Status404NotFound;
                 message = exception.Message;
                 break;
+            case Exceptions.DependencyConflictException depEx:
+                statusCode = StatusCodes.Status409Conflict;
+                message = depEx.Message;
+                data = new Dictionary<string, object> { ["dependentTables"] = depEx.DependentTables };
+                break;
             case InvalidOperationException:
                 statusCode = StatusCodes.Status409Conflict;
+                message = exception.Message;
+                break;
+            case Exceptions.ForbiddenAccessException:
+                statusCode = StatusCodes.Status403Forbidden;
                 message = exception.Message;
                 break;
             case UnauthorizedAccessException:
@@ -69,7 +79,7 @@ public class DefaultExceptionResponseMapper : IExceptionResponseMapper
         }
 
         object? details = null;
-        if (isDevelopment && errors == null)
+        if (isDevelopment && errors == null && data == null)
         {
             details = new
             {
@@ -83,7 +93,7 @@ public class DefaultExceptionResponseMapper : IExceptionResponseMapper
             }
         }
 
-        return new ExceptionMappingResult(statusCode, message, details, errors);
+        return new ExceptionMappingResult(statusCode, message, details, errors, data);
     }
 
     private static (int StatusCode, string Message) MapRpcException(Grpc.Core.RpcException rpcEx)

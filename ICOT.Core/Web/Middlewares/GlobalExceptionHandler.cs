@@ -91,7 +91,9 @@ public class GlobalExceptionHandler : IExceptionHandler
         {
             var apiResponse = mapping.Errors != null && mapping.Errors.Count > 0
                 ? ApiResponse.ValidationError(mapping.Errors, mapping.Message)
-                : ApiResponse.Error(mapping.StatusCode, mapping.Message, mapping.Details);
+                : mapping.Data != null
+                    ? ApiResponse.ErrorWithData(mapping.StatusCode, mapping.Message, mapping.Data, mapping.Details)
+                    : ApiResponse.Error(mapping.StatusCode, mapping.Message, mapping.Details);
 
             httpContext.Response.ContentType = "application/json";
             httpContext.Response.StatusCode = mapping.StatusCode;

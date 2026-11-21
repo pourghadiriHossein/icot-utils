@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+option csharp_namespace = "ICOT.Core.Grpc.ReferenceCheck";
+
+package icot.reference_check;
+
+service ReferenceCheckGrpcService {
+    rpc CheckReferences (CheckReferencesGrpcRequest) returns (CheckReferencesGrpcResponse);
+}
+
+message CheckReferencesGrpcRequest {
+    string target_service = 1;
+    string target_table = 2;
+    string target_id = 3;
+}
+
+message CheckReferencesGrpcResponse {
+    repeated string dependent_tables = 1;
+}

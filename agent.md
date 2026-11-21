@@ -158,6 +158,19 @@ Provides a unified, SOLID-compliant **Gather → Deduplicate → Chunked Fetch �
   - **Service Provider (Server)**: Hosts contract in `src/{Service}.API/Protos/{name}.proto` with `<Protobuf Include="Protos\{name}.proto" GrpcServices="Server" />`.
   - **Service Consumer (Client)**: Copies the contract locally into `src/{Service}.Infrastructure/Protos/{name}.proto` with `<Protobuf Include="Protos\{name}.proto" GrpcServices="Client" />`.
 
+### 🛡️ Dual-Mode Delete, Endpoint Scopes & Cross-Service Reference Check (`2026-11-21`)
+- **Exceptions & Uniform Conflict/Forbidden Responses (`ForbiddenAccessException`, `DependencyConflictException`, `ApiResponse.ErrorWithData`)**:
+  - Added `ICOT.Core.Exceptions.ForbiddenAccessException` mapped by `DefaultExceptionResponseMapper` to `HTTP 403 Forbidden`.
+  - Added `ICOT.Core.Exceptions.DependencyConflictException` (`IReadOnlyList<string> DependentTables`) mapped by `DefaultExceptionResponseMapper` to `HTTP 409 Conflict` with payload `data: { "dependentTables": [...] }`.
+  - Added `ApiResponse<T>.ErrorWithData(...)` / `ApiResponse.ErrorWithData(...)` and extended `ExceptionMappingResult` (`object? Data = null`) + `GlobalExceptionHandler` so error responses can include structured `data` (while omitting dev exception details when `data != null`).
+- **Scope Parsing & Force-Delete Authorization (`ScopeHelper`, `IScopeContextProvider`, `ControllerScopeExtensions`, `ForceDeleteScopeFilter`)**:
+  - Added `ICOT.Core.Utils.Services.ScopeHelper`, segregated `IScopeContextProvider` / `HttpContextScopeContextProvider` (registered in `AddPlatformApiStandard`), and `ICOT.Core.Extensions.ControllerScopeExtensions` to parse the gateway-injected comma-separated `x-scopes` header cleanly.
+  - Added MVC action filter `ICOT.Core.Filters.ForceDeleteScopeFilter` (registered in `AddPlatformApiStandard`), which inspects `DELETE` requests with `?force=true` and enforces any `.force_delete` scope declared on `[RegistryEndpoint(..., scopes: [...])]` before controller action execution, returning `403 Forbidden` if missing.
+- **Cross-Service Reverse Reference-Check Contract & Guard (`reference_check.proto`, `ICrossServiceReferenceChecker`, `DeletionDependencyGuard`)**:
+  - Compiled `ICOT.Core/Grpc/Protos/reference_check.proto` (`GrpcServices="Both"`, C# namespace `ICOT.Core.Grpc.ReferenceCheck`) defining `ReferenceCheckGrpcService.CheckReferences(target_service, target_table, target_id) -> (dependent_tables)`.
+  - Added `ICOT.Core.Deletion.ICrossServiceReferenceChecker` (`GrpcCrossServiceReferenceChecker` with concurrent fail-closed gRPC fan-out via `GrpcClientFactory` and `NoOpCrossServiceReferenceChecker`) and `DeletionDependencyGuard` (`MergeDependentTables`, `ThrowIfHasDependencies`).
+  - Added `AddPlatformReferenceCheckClient` and `AddPlatformReferenceCheckClients` in `PlatformApiExtensions` (reusing shared `ResolveServiceUri` and `ConfigureGrpcClientBuilder` helpers with `TryAddScoped<ICrossServiceReferenceChecker, ...>()`).
+
 ## Naming & Casing Standard
 
 | بخش | Convention استاندارد | مثال |
