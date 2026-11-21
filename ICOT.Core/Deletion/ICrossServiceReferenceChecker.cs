@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Grpc.Net.ClientFactory;
 using ICOT.Core.Extensions;
-using ICOT.Core.Grpc.ReferenceCheck;
+using ICOT.Core.Deletion.Contracts;
 using Microsoft.Extensions.Logging;
 
 namespace ICOT.Core.Deletion;

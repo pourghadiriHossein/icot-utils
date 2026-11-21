@@ -469,7 +469,7 @@ public static class PlatformApiExtensions
         AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
 
         var clientName = ICOT.Core.Deletion.GrpcCrossServiceReferenceChecker.GetClientName(serviceName);
-        var clientBuilder = services.AddGrpcClient<ICOT.Core.Grpc.ReferenceCheck.ReferenceCheckGrpcService.ReferenceCheckGrpcServiceClient>(
+        var clientBuilder = services.AddGrpcClient<ICOT.Core.Deletion.Contracts.ReferenceCheckGrpcService.ReferenceCheckGrpcServiceClient>(
             clientName,
             options =>
             {

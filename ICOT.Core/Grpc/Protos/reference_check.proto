@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-option csharp_namespace = "ICOT.Core.Grpc.ReferenceCheck";
+option csharp_namespace = "ICOT.Core.Deletion.Contracts";
 
 package icot.reference_check;
 
