@@ -263,6 +263,7 @@ public static class PlatformApiExtensions
         });
         
         services.AddHttpContextAccessor();
+        services.AddMemoryCache();
         // 3. Register global MediatR behaviors for validation and logging
         services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ICOT.Core.Behaviors.ValidationBehavior<,>));
         services.AddTransient(typeof(MediatR.IPipelineBehavior<,>), typeof(ICOT.Core.Behaviors.LogAddBehavior<,>));

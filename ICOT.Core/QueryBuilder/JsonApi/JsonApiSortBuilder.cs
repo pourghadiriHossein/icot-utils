@@ -16,6 +16,12 @@ public static class JsonApiSortBuilder
     public static IQueryable<T> ApplySort<T>(IQueryable<T> query, string? sortQuery) where T : class
     {
         bool appliedExplicitSort = false;
+        var idProp = typeof(T).GetProperty("Id", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
+        var hasValidIdProp = idProp != null &&
+                             idProp.CanRead &&
+                             idProp.GetIndexParameters().Length == 0 &&
+                             !Attribute.IsDefined(idProp, typeof(NotMappedAttribute)) &&
+                             (idProp.PropertyType.IsValueType || idProp.PropertyType == typeof(string));
 
         // 1. Explicit sort (?sort=-createdAt,title)
         if (!string.IsNullOrWhiteSpace(sortQuery))
@@ -39,6 +45,13 @@ public static class JsonApiSortBuilder
             
             if (validOrderByStrings.Any())
             {
+                if (hasValidIdProp && !validOrderByStrings.Any(s =>
+                    s.Equals(idProp!.Name, StringComparison.OrdinalIgnoreCase) ||
+                    s.StartsWith(idProp.Name + " ", StringComparison.OrdinalIgnoreCase)))
+                {
+                    validOrderByStrings.Add($"{idProp!.Name} descending");
+                }
+
                 var sortExpression = string.Join(", ", validOrderByStrings);
                 query = query.OrderBy(sortExpression);
                 appliedExplicitSort = true;
@@ -49,15 +62,16 @@ public static class JsonApiSortBuilder
         if (!appliedExplicitSort && !HasOrdering(query.Expression))
         {
             var createdAtProp = typeof(T).GetProperty("CreatedAt", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
-            var idProp = typeof(T).GetProperty("Id", BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance);
             
             if (createdAtProp != null) 
             {
-                query = query.OrderBy("CreatedAt descending");
+                query = hasValidIdProp
+                    ? query.OrderBy($"{createdAtProp.Name} descending, {idProp!.Name} descending")
+                    : query.OrderBy($"{createdAtProp.Name} descending");
             }
-            else if (idProp != null) 
+            else if (hasValidIdProp) 
             {
-                query = query.OrderBy("Id descending");
+                query = query.OrderBy($"{idProp!.Name} descending");
             }
             else
             {

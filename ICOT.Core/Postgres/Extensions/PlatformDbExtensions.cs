@@ -106,6 +106,7 @@ public static class PlatformDbExtensions
         {
             options.UseNpgsql(dataSource, npgsqlOptions =>
             {
+                npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
                 npgsqlOptions.EnableRetryOnFailure(
                     maxRetryCount: 3,
                     maxRetryDelay: TimeSpan.FromSeconds(5),
