@@ -446,10 +446,13 @@ public static class PlatformApiExtensions
     }
 
     public static IHttpClientBuilder AddPlatformGrpcClient<TClient>(this IServiceCollection services, string serviceName) where TClient : class
+        => services.AddPlatformGrpcClient<TClient>(serviceName, enableRetry: true);
+
+    public static IHttpClientBuilder AddPlatformGrpcClient<TClient>(this IServiceCollection services, string serviceName, bool enableRetry) where TClient : class
     {
         AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
 
-        return services.AddGrpcClient<TClient>(options =>
+        var clientBuilder = services.AddGrpcClient<TClient>(options =>
         {
             var cleanName = serviceName.Replace("Service", "", StringComparison.OrdinalIgnoreCase).Trim('_');
             var upperName = cleanName.ToUpperInvariant();
@@ -484,15 +487,58 @@ public static class PlatformApiExtensions
 
             options.Address = uri;
         })
-        .SetHandlerLifetime(TimeSpan.FromHours(1))
+        .SetHandlerLifetime(TimeSpan.FromMinutes(15))
         .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
         {
             EnableMultipleHttp2Connections = true,
-            KeepAlivePingDelay = TimeSpan.FromSeconds(60),
-            KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            KeepAlivePingDelay = TimeSpan.FromSeconds(20),
+            KeepAlivePingTimeout = TimeSpan.FromSeconds(10),
             KeepAlivePingPolicy = HttpKeepAlivePingPolicy.Always,
-            PooledConnectionLifetime = TimeSpan.FromHours(1),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5)
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2)
         });
+
+        var maxRetryAttempts = GetIntEnv("GRPC_RETRY_MAX_ATTEMPTS", 3, 0, 5);
+        if (enableRetry && maxRetryAttempts > 1)
+        {
+            clientBuilder.ConfigureChannel(channelOptions =>
+            {
+                channelOptions.ServiceConfig = new Grpc.Net.Client.Configuration.ServiceConfig
+                {
+                    MethodConfigs =
+                    {
+                        new Grpc.Net.Client.Configuration.MethodConfig
+                        {
+                            Names = { Grpc.Net.Client.Configuration.MethodName.Default },
+                            RetryPolicy = new Grpc.Net.Client.Configuration.RetryPolicy
+                            {
+                                MaxAttempts = maxRetryAttempts,
+                                InitialBackoff = TimeSpan.FromMilliseconds(150),
+                                MaxBackoff = TimeSpan.FromSeconds(1),
+                                BackoffMultiplier = 2.0,
+                                RetryableStatusCodes = { Grpc.Core.StatusCode.Unavailable }
+                            }
+                        }
+                    }
+                };
+            });
+        }
+
+        return clientBuilder;
+    }
+
+    internal static int GetIntEnv(string key, int defaultValue, int minValue, int maxValue)
+    {
+        var raw = Environment.GetEnvironmentVariable(key) ?? DotNetEnv.Env.GetString(key);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return Math.Clamp(defaultValue, minValue, maxValue);
+        }
+
+        var cleaned = raw.Trim().Trim('"', '\'');
+        return int.TryParse(cleaned, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? Math.Clamp(parsed, minValue, maxValue)
+            : Math.Clamp(defaultValue, minValue, maxValue);
     }
 }

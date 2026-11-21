@@ -46,7 +46,8 @@ public static class PlatformDbExtensions
             host = "host.docker.internal";
         }
 
-        var port = Environment.GetEnvironmentVariable("POSTGRES_PORT") ?? Env.GetString("POSTGRES_PORT") ?? "5432";
+        var portStr = Environment.GetEnvironmentVariable("POSTGRES_PORT") ?? Env.GetString("POSTGRES_PORT") ?? "5432";
+        var parsedPort = int.TryParse(portStr.Trim().Trim('"', '\''), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var p) && p > 0 ? p : 5432;
         var user = Environment.GetEnvironmentVariable("POSTGRES_USER") ?? Env.GetString("POSTGRES_USER") ?? "postgres";
         var pass = Environment.GetEnvironmentVariable("POSTGRES_PASS") ?? Env.GetString("POSTGRES_PASS") ?? "postgres";
         
@@ -74,7 +75,28 @@ public static class PlatformDbExtensions
             }
         }
 
-        var connectionString = $"Host={host};Port={port};Database={finalDbName};Username={user};Password={pass};Pooling=true;Minimum Pool Size=2;Maximum Pool Size=100;Connection Idle Lifetime=300;Connection Pruning Interval=10;KeepAlive=30;Timeout=30;Command Timeout=30;";
+        var minPoolSize = PlatformApiExtensions.GetIntEnv("POSTGRES_MIN_POOL_SIZE", 0, 0, 50);
+        var maxPoolSize = PlatformApiExtensions.GetIntEnv("POSTGRES_MAX_POOL_SIZE", 15, Math.Max(1, minPoolSize), 200);
+        var idleLifetime = PlatformApiExtensions.GetIntEnv("POSTGRES_CONNECTION_IDLE_LIFETIME", 60, 0, 3600);
+        var connectionLifetime = PlatformApiExtensions.GetIntEnv("POSTGRES_CONNECTION_LIFETIME", 600, 0, 7200);
+
+        var connectionString = new Npgsql.NpgsqlConnectionStringBuilder
+        {
+            Host = host,
+            Port = parsedPort,
+            Database = finalDbName,
+            Username = user,
+            Password = pass,
+            Pooling = true,
+            MinPoolSize = minPoolSize,
+            MaxPoolSize = maxPoolSize,
+            ConnectionIdleLifetime = idleLifetime,
+            ConnectionLifetime = connectionLifetime,
+            ConnectionPruningInterval = 10,
+            KeepAlive = 15,
+            Timeout = 15,
+            CommandTimeout = 30
+        }.ConnectionString;
 
         var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(connectionString);
         dataSourceBuilder.EnableDynamicJson();
@@ -91,9 +113,13 @@ public static class PlatformDbExtensions
             });
             ((IDbContextOptionsBuilderInfrastructure)options).AddOrUpdateExtension(new SnakeCaseNamingOptionsExtension());
             options.AddInterceptors(sp.GetRequiredService<ICOT.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>());
-            options.ConfigureWarnings(w => w.Ignore(
-                Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning,
-                Microsoft.EntityFrameworkCore.Diagnostics.CoreEventId.RowLimitingOperationWithoutOrderByWarning));
+            options.ConfigureWarnings(w =>
+            {
+                w.Ignore(
+                    Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning,
+                    Microsoft.EntityFrameworkCore.Diagnostics.CoreEventId.RowLimitingOperationWithoutOrderByWarning);
+                w.Log((Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.ConnectionError, Microsoft.Extensions.Logging.LogLevel.Warning));
+            });
         }, poolSize: 1024);
 
         return services;

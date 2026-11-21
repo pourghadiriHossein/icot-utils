@@ -59,6 +59,13 @@ public class DefaultExceptionResponseMapper : IExceptionResponseMapper
                 statusCode = StatusCodes.Status401Unauthorized;
                 message = exception.Message;
                 break;
+            case Grpc.Core.RpcException rpcEx:
+                (statusCode, message) = MapRpcException(rpcEx);
+                break;
+            case OperationCanceledException:
+                statusCode = 499;
+                message = "The request was cancelled.";
+                break;
         }
 
         object? details = null;
@@ -70,10 +77,33 @@ public class DefaultExceptionResponseMapper : IExceptionResponseMapper
                 exception.Message,
                 exception.StackTrace
             };
-            message = exception.Message;
+            if (exception is not Grpc.Core.RpcException && exception is not OperationCanceledException)
+            {
+                message = exception.Message;
+            }
         }
 
         return new ExceptionMappingResult(statusCode, message, details, errors);
+    }
+
+    private static (int StatusCode, string Message) MapRpcException(Grpc.Core.RpcException rpcEx)
+    {
+        var detail = string.IsNullOrWhiteSpace(rpcEx.Status.Detail) ? null : rpcEx.Status.Detail;
+
+        return rpcEx.StatusCode switch
+        {
+            Grpc.Core.StatusCode.Unavailable => (StatusCodes.Status503ServiceUnavailable, "A downstream service is temporarily unavailable. Please try again shortly."),
+            Grpc.Core.StatusCode.DeadlineExceeded => (StatusCodes.Status504GatewayTimeout, "A downstream service request timed out."),
+            Grpc.Core.StatusCode.Unauthenticated => (StatusCodes.Status401Unauthorized, detail ?? "Unauthorized."),
+            Grpc.Core.StatusCode.PermissionDenied => (StatusCodes.Status403Forbidden, detail ?? "Forbidden."),
+            Grpc.Core.StatusCode.NotFound => (StatusCodes.Status404NotFound, detail ?? "Resource not found."),
+            Grpc.Core.StatusCode.InvalidArgument or Grpc.Core.StatusCode.FailedPrecondition or Grpc.Core.StatusCode.OutOfRange
+                => (StatusCodes.Status422UnprocessableEntity, detail ?? "Invalid request."),
+            Grpc.Core.StatusCode.AlreadyExists or Grpc.Core.StatusCode.Aborted
+                => (StatusCodes.Status409Conflict, detail ?? "Conflict."),
+            Grpc.Core.StatusCode.Cancelled => (499, "The request was cancelled."),
+            _ => (StatusCodes.Status502BadGateway, "An error occurred while communicating with a downstream service.")
+        };
     }
 
     private static string ToCamelCase(string str)

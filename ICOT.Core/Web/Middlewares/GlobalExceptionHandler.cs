@@ -21,6 +21,12 @@ namespace ICOT.Core.Middlewares;
 /// </summary>
 public class GlobalExceptionHandler : IExceptionHandler
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
     private readonly ILogger<GlobalExceptionHandler> _logger;
     private readonly IHostEnvironment _env;
     private readonly IExceptionResponseMapper _responseMapper;
@@ -41,38 +47,63 @@ public class GlobalExceptionHandler : IExceptionHandler
 
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
-        // 1. Log the error (Serilog will pick this up)
-        _logger.LogError(exception, "An unhandled exception occurred: {Message}", exception.Message);
-
         var serviceName = PlatformApiExtensions.CurrentServiceName ?? "unknown";
+
+        // 1. Prepare the standardized response via IExceptionResponseMapper first (SRP & OCP)
+        var mapping = _responseMapper.Map(exception, _env.IsDevelopment());
+        var isServerError = mapping.StatusCode >= StatusCodes.Status500InternalServerError;
+
+        // 2. Log by severity so 4xx/cancelled client outcomes do not trigger false Sentry error alerts
+        if (isServerError)
+        {
+            _logger.LogError(exception, "An unhandled exception occurred ({StatusCode}): {Message}", mapping.StatusCode, exception.Message);
+        }
+        else if (mapping.StatusCode == 499)
+        {
+            _logger.LogInformation("Request was cancelled by client ({StatusCode}) for {Method} {Path}.", mapping.StatusCode, httpContext.Request.Method, httpContext.Request.Path.Value);
+        }
+        else
+        {
+            _logger.LogWarning("Client error response ({StatusCode}) for {Method} {Path}: {Message}", mapping.StatusCode, httpContext.Request.Method, httpContext.Request.Path.Value, exception.Message);
+        }
 
         // If it's a gRPC request, let gRPC handle its own trailers and status codes
         if (httpContext.Request.ContentType?.StartsWith("application/grpc", StringComparison.OrdinalIgnoreCase) == true)
         {
-            _ = PublishErrorSafelyAsync(httpContext, serviceName, exception, cancellationToken);
+            if (isServerError)
+            {
+                _ = PublishErrorSafelyAsync(httpContext, serviceName, exception, cancellationToken);
+            }
             return false;
         }
 
-        // 2. Prepare the standardized response via IExceptionResponseMapper (SRP & OCP)
-        var mapping = _responseMapper.Map(exception, _env.IsDevelopment());
-        var apiResponse = mapping.Errors != null && mapping.Errors.Count > 0
-            ? ApiResponse.ValidationError(mapping.Errors, mapping.Message)
-            : ApiResponse.Error(mapping.StatusCode, mapping.Message, mapping.Details);
+        if (mapping.StatusCode == 499 || httpContext.RequestAborted.IsCancellationRequested)
+        {
+            if (!httpContext.Response.HasStarted)
+            {
+                httpContext.Response.StatusCode = 499;
+            }
+            return true;
+        }
 
         // 3. Write JSON response
-        httpContext.Response.ContentType = "application/json";
-        httpContext.Response.StatusCode = mapping.StatusCode;
-
-        var jsonOptions = new JsonSerializerOptions
+        if (!httpContext.Response.HasStarted)
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-        };
+            var apiResponse = mapping.Errors != null && mapping.Errors.Count > 0
+                ? ApiResponse.ValidationError(mapping.Errors, mapping.Message)
+                : ApiResponse.Error(mapping.StatusCode, mapping.Message, mapping.Details);
 
-        await httpContext.Response.WriteAsJsonAsync(apiResponse, jsonOptions, cancellationToken);
+            httpContext.Response.ContentType = "application/json";
+            httpContext.Response.StatusCode = mapping.StatusCode;
 
-        // 4. Publish log:error event to ACTION_SERVICE_QUEUE (fire-and-forget safe background task)
-        _ = PublishErrorSafelyAsync(httpContext, serviceName, exception, cancellationToken);
+            await httpContext.Response.WriteAsJsonAsync(apiResponse, JsonOptions, cancellationToken);
+        }
+
+        // 4. Publish log:error event to ACTION_SERVICE_QUEUE only for server errors (5xx)
+        if (isServerError)
+        {
+            _ = PublishErrorSafelyAsync(httpContext, serviceName, exception, cancellationToken);
+        }
 
         // Return true to indicate the exception has been handled
         return true;
