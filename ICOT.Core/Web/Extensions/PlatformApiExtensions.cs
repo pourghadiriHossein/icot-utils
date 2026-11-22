@@ -252,6 +252,13 @@ public static class PlatformApiExtensions
         {
             // Accept both string names ("A", "CNAME") and integer values (0, 2) for enums
             options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+            // Tri-state partial update support (key missing / explicit null / value)
+            options.JsonSerializerOptions.Converters.Add(new ICOT.Core.Patch.PatchFieldJsonConverterFactory());
+            var patchResolver = options.JsonSerializerOptions.TypeInfoResolver as System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver
+                ?? new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver();
+            patchResolver.Modifiers.Add(ICOT.Core.Patch.PatchFieldJsonModifiers.SkipUnspecified);
+            options.JsonSerializerOptions.TypeInfoResolver = patchResolver;
         })
         .ConfigureApiBehaviorOptions(options =>
         {
@@ -377,6 +384,43 @@ public static class PlatformApiExtensions
                 }
 
                 return Task.CompletedTask;
+            });
+
+            // Document PatchField<T> as T (nullable): the wrapper is an implementation detail of tri-state updates
+            options.AddSchemaTransformer(async (schema, context, cancellationToken) =>
+            {
+                var patchType = context.JsonTypeInfo.Type;
+                if (!patchType.IsGenericType || patchType.GetGenericTypeDefinition() != typeof(ICOT.Core.Patch.PatchField<>))
+                {
+                    return;
+                }
+
+                var valueType = patchType.GetGenericArguments()[0];
+                Microsoft.OpenApi.IOpenApiSchema inner = await context.GetOrCreateSchemaAsync(valueType, null, cancellationToken);
+
+                if (inner is Microsoft.OpenApi.OpenApiSchema source)
+                {
+                    schema.Type = source.Type;
+                    schema.Format = source.Format;
+                    schema.Properties = source.Properties;
+                    schema.Required = source.Required;
+                    schema.Items = source.Items;
+                    schema.AdditionalProperties = source.AdditionalProperties;
+                    schema.AdditionalPropertiesAllowed = source.AdditionalPropertiesAllowed;
+                    schema.Enum = source.Enum;
+                    schema.Pattern = source.Pattern;
+                    schema.MinLength = source.MinLength;
+                    schema.MaxLength = source.MaxLength;
+                }
+                else
+                {
+                    schema.AllOf = new List<Microsoft.OpenApi.IOpenApiSchema> { inner };
+                }
+
+                if (schema.Type.HasValue)
+                {
+                    schema.Type |= Microsoft.OpenApi.JsonSchemaType.Null;
+                }
             });
 
             // Transform Dictionary<string, string> schemas to show en/fa properties and example

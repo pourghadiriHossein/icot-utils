@@ -75,10 +75,13 @@ public class DefaultLogPayloadSanitizer : ILogPayloadSanitizer
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             ReferenceHandler = ReferenceHandler.IgnoreCycles,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            Converters = { new ICOT.Core.Patch.PatchFieldJsonConverterFactory() },
             TypeInfoResolver = new DefaultJsonTypeInfoResolver
             {
                 Modifiers =
                 {
+                    // Only log PatchField properties that were really sent (explicit null or value)
+                    ICOT.Core.Patch.PatchFieldJsonModifiers.SkipUnspecified,
                     typeInfo =>
                     {
                         foreach (var prop in typeInfo.Properties)
