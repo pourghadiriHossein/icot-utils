@@ -131,6 +131,12 @@ public static class PlatformApiExtensions
             {
                 options.Release = release.Trim();
             }
+
+            // Never report expected domain/client exceptions (4xx) as unhandled Sentry errors
+            options.AddExceptionFilterForType<ICOT.Core.Exceptions.DependencyConflictException>();
+            options.AddExceptionFilterForType<ICOT.Core.Exceptions.ValidationException>();
+            options.AddExceptionFilterForType<FluentValidation.ValidationException>();
+            options.AddExceptionFilterForType<ICOT.Core.Exceptions.ForbiddenAccessException>();
         });
 
         Console.WriteLine($"🌐 [{serviceName.ToUpper()}] Configured to listen on {bindingUrl}");
@@ -237,8 +243,10 @@ public static class PlatformApiExtensions
         services.AddScoped<ICOT.Core.Utils.Services.IAccountValidationService>(sp => sp.GetRequiredService<ICOT.Core.Utils.Services.IInternalValidationService>());
 
         services.AddGrpc();
-        // 1. Add Global Exception Handler
+        // 1. Add Global Exception Handler & Sentry Client-Error Filtering
         services.AddExceptionHandler<ICOT.Core.Middlewares.GlobalExceptionHandler>();
+        services.AddSingleton<ICOT.Core.Middlewares.ClientErrorSentryEventProcessor>();
+        services.AddSingleton<Microsoft.Extensions.Options.IConfigureOptions<Sentry.AspNetCore.SentryAspNetCoreOptions>, ICOT.Core.Middlewares.ClientErrorSentryOptionsSetup>();
         services.AddProblemDetails();
 
         // 2. Configure Controllers to use the ApiResponseFilter and force application/json

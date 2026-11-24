@@ -21,6 +21,8 @@ namespace ICOT.Core.Middlewares;
 /// </summary>
 public class GlobalExceptionHandler : IExceptionHandler
 {
+    internal const string ClientErrorHandledExceptionItemKey = "__ICOT_ClientErrorHandledException";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -31,6 +33,12 @@ public class GlobalExceptionHandler : IExceptionHandler
     private readonly IHostEnvironment _env;
     private readonly IExceptionResponseMapper _responseMapper;
     private readonly IPlatformErrorPublisher _errorPublisher;
+
+    internal static bool IsClientErrorHandled(HttpContext? httpContext, Exception? exception)
+        => httpContext != null
+           && exception != null
+           && httpContext.Items.TryGetValue(ClientErrorHandledExceptionItemKey, out var handled)
+           && ReferenceEquals(handled, exception);
 
     [ActivatorUtilitiesConstructor]
     public GlobalExceptionHandler(
@@ -52,6 +60,13 @@ public class GlobalExceptionHandler : IExceptionHandler
         // 1. Prepare the standardized response via IExceptionResponseMapper first (SRP & OCP)
         var mapping = _responseMapper.Map(exception, _env.IsDevelopment());
         var isServerError = mapping.StatusCode >= StatusCodes.Status500InternalServerError;
+
+        if (!isServerError)
+        {
+            // Mark handled 4xx/499 exceptions on HttpContext so Sentry's IExceptionHandlerFeature
+            // integration does not report expected client errors or cancellations as Sentry errors.
+            httpContext.Items[ClientErrorHandledExceptionItemKey] = exception;
+        }
 
         // 2. Log by severity so 4xx/cancelled client outcomes do not trigger false Sentry error alerts
         if (isServerError)
