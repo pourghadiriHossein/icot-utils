@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -26,55 +27,31 @@ public static class PlatformDbExtensions
         services.AddSingleton<ICOT.Core.Utils.Services.IUserContextProvider, ICOT.Core.Utils.Services.HttpContextUserContextProvider>();
         services.AddSingleton<ICOT.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>(sp =>
             new ICOT.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor(sp.GetRequiredService<ICOT.Core.Utils.Services.IUserContextProvider>()));
-        // Load .env file (assuming it is in the root directory)
-        var rootDir = Directory.GetCurrentDirectory();
-        while (!File.Exists(Path.Combine(rootDir, ".env")) && Directory.GetParent(rootDir) != null)
-        {
-            rootDir = Directory.GetParent(rootDir)!.FullName;
-        }
-        var envPath = Path.Combine(rootDir, ".env");
-        if (File.Exists(envPath))
-        {
-            Env.Load(envPath);
-            Env.TraversePath().Load();
-        }
 
-        var host = Environment.GetEnvironmentVariable("POSTGRES_HOST") ?? Env.GetString("POSTGRES_HOST") ?? "localhost";
+        LoadNearestEnvFile();
+
         var inContainer = string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase);
-        if (inContainer && (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host == "127.0.0.1"))
-        {
-            host = "host.docker.internal";
-        }
+        var host = NormalizeContainerHost(GetTrimmedEnv("POSTGRES_HOST") ?? "localhost", inContainer);
+        var parsedPort = GetNullableIntEnv("POSTGRES_PORT", 1, 65535) ?? 5432;
+        var user = GetTrimmedEnv("POSTGRES_USER") ?? "postgres";
+        var pass = GetTrimmedEnv("POSTGRES_PASS") ?? "postgres";
+        var finalDbName = ResolveDatabaseName(defaultDbName, envDbKey);
 
-        var portStr = Environment.GetEnvironmentVariable("POSTGRES_PORT") ?? Env.GetString("POSTGRES_PORT") ?? "5432";
-        var parsedPort = int.TryParse(portStr.Trim().Trim('"', '\''), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var p) && p > 0 ? p : 5432;
-        var user = Environment.GetEnvironmentVariable("POSTGRES_USER") ?? Env.GetString("POSTGRES_USER") ?? "postgres";
-        var pass = Environment.GetEnvironmentVariable("POSTGRES_PASS") ?? Env.GetString("POSTGRES_PASS") ?? "postgres";
-        
-        var finalDbName = defaultDbName;
-        if (!string.IsNullOrEmpty(envDbKey))
-        {
-            var cleanKey = envDbKey.Replace("POSTGRES_", "");
-            var candidateKeys = new[]
-            {
-                envDbKey,
-                cleanKey,
-                $"POSTGRES_{cleanKey}",
-                envDbKey.Replace("_SERVICE_", "SERVICE_"),
-                cleanKey.Replace("_SERVICE_", "SERVICE_")
-            };
+        var rawMigrationHost = GetTrimmedEnv("POSTGRES_MIGRATION_HOST");
+        var rawMigrationPort = GetNullableIntEnv("POSTGRES_MIGRATION_PORT", 1, 65535);
+        var hasDedicatedMigrationHost = !string.IsNullOrEmpty(rawMigrationHost);
+        var migrationHost = hasDedicatedMigrationHost
+            ? NormalizeContainerHost(rawMigrationHost!, inContainer)
+            : host;
+        var migrationPort = rawMigrationPort
+            ?? (hasDedicatedMigrationHost && !string.Equals(migrationHost, host, StringComparison.OrdinalIgnoreCase)
+                ? 5432
+                : parsedPort);
 
-            foreach (var k in candidateKeys)
-            {
-                var val = Environment.GetEnvironmentVariable(k) ?? Env.GetString(k);
-                if (!string.IsNullOrWhiteSpace(val))
-                {
-                    finalDbName = val.Trim();
-                    break;
-                }
-            }
-        }
+        var usesSeparateMigrationEndpoint =
+            !string.Equals(migrationHost, host, StringComparison.OrdinalIgnoreCase) || migrationPort != parsedPort;
 
+        var noResetOnClose = GetNullableBoolEnv("POSTGRES_NO_RESET_ON_CLOSE") ?? usesSeparateMigrationEndpoint;
         var minPoolSize = PlatformApiExtensions.GetIntEnv("POSTGRES_MIN_POOL_SIZE", 0, 0, 50);
         var maxPoolSize = PlatformApiExtensions.GetIntEnv("POSTGRES_MAX_POOL_SIZE", 15, Math.Max(1, minPoolSize), 200);
         var idleLifetime = PlatformApiExtensions.GetIntEnv("POSTGRES_CONNECTION_IDLE_LIFETIME", 60, 0, 3600);
@@ -93,6 +70,7 @@ public static class PlatformDbExtensions
             ConnectionIdleLifetime = idleLifetime,
             ConnectionLifetime = connectionLifetime,
             ConnectionPruningInterval = 10,
+            NoResetOnClose = noResetOnClose,
             KeepAlive = 15,
             Timeout = 15,
             CommandTimeout = 30
@@ -102,26 +80,19 @@ public static class PlatformDbExtensions
         dataSourceBuilder.EnableDynamicJson();
         var dataSource = dataSourceBuilder.Build();
 
-        services.AddDbContextPool<TContext>((sp, options) =>
+        if (usesSeparateMigrationEndpoint)
         {
-            options.UseNpgsql(dataSource, npgsqlOptions =>
-            {
-                npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
-                npgsqlOptions.EnableRetryOnFailure(
-                    maxRetryCount: 3,
-                    maxRetryDelay: TimeSpan.FromSeconds(5),
-                    errorCodesToAdd: null);
-            });
-            ((IDbContextOptionsBuilderInfrastructure)options).AddOrUpdateExtension(new SnakeCaseNamingOptionsExtension());
-            options.AddInterceptors(sp.GetRequiredService<ICOT.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>());
-            options.ConfigureWarnings(w =>
-            {
-                w.Ignore(
-                    Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning,
-                    Microsoft.EntityFrameworkCore.Diagnostics.CoreEventId.RowLimitingOperationWithoutOrderByWarning);
-                w.Log((Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.ConnectionError, Microsoft.Extensions.Logging.LogLevel.Warning));
-            });
-        }, poolSize: 1024);
+            services.TryAddSingleton(new PlatformMigrationConnectionSettings<TContext>(
+                migrationHost,
+                migrationPort,
+                finalDbName,
+                user,
+                pass));
+        }
+
+        services.AddDbContextPool<TContext>((sp, options) =>
+            ConfigurePlatformNpgsqlOptions(options, dataSource, sp),
+            poolSize: 1024);
 
         return services;
     }
@@ -168,6 +139,8 @@ public static class PlatformDbExtensions
 
     /// <summary>
     /// Automatically applies pending migrations or creates the database if it doesn't exist.
+    /// When a dedicated migration endpoint (<c>POSTGRES_MIGRATION_HOST</c>/<c>POSTGRES_MIGRATION_PORT</c>) is configured,
+    /// runs migrations directly against PostgreSQL with pooling disabled so session-level EF Core advisory locks bypass transaction poolers (e.g. PgBouncer).
     /// Catches connection errors gracefully to allow service startup even if DB is temporarily unreachable.
     /// </summary>
     public static async Task ApplyPlatformMigrationsAsync<TContext>(this IServiceProvider provider) where TContext : DbContext
@@ -175,6 +148,36 @@ public static class PlatformDbExtensions
         try
         {
             using var scope = provider.CreateScope();
+            var migrationSettings = scope.ServiceProvider.GetService<PlatformMigrationConnectionSettings<TContext>>();
+
+            if (migrationSettings is not null)
+            {
+                var migrationConnectionString = new Npgsql.NpgsqlConnectionStringBuilder
+                {
+                    Host = migrationSettings.Host,
+                    Port = migrationSettings.Port,
+                    Database = migrationSettings.Database,
+                    Username = migrationSettings.Username,
+                    Password = migrationSettings.Password,
+                    Pooling = false,
+                    KeepAlive = 15,
+                    Timeout = 15,
+                    CommandTimeout = 60
+                }.ConnectionString;
+
+                var dataSourceBuilder = new Npgsql.NpgsqlDataSourceBuilder(migrationConnectionString);
+                dataSourceBuilder.EnableDynamicJson();
+                await using var migrationDataSource = dataSourceBuilder.Build();
+
+                var optionsBuilder = new DbContextOptionsBuilder<TContext>();
+                ConfigurePlatformNpgsqlOptions(optionsBuilder, migrationDataSource, scope.ServiceProvider);
+
+                await using var migrationContext = ActivatorUtilities.CreateInstance<TContext>(scope.ServiceProvider, optionsBuilder.Options);
+                await migrationContext.Database.MigrateAsync();
+                Console.WriteLine($"✅ Database migrations checked and applied for {typeof(TContext).Name} via {migrationSettings.Host}:{migrationSettings.Port}.");
+                return;
+            }
+
             var context = scope.ServiceProvider.GetRequiredService<TContext>();
             await context.Database.MigrateAsync();
             Console.WriteLine($"✅ Database migrations checked and applied for {typeof(TContext).Name}.");
@@ -184,6 +187,130 @@ public static class PlatformDbExtensions
             Console.WriteLine($"⚠️ [Notice] Could not auto-apply migrations for {typeof(TContext).Name} ({ex.Message}). Service will continue startup.");
         }
     }
+
+    private static void ConfigurePlatformNpgsqlOptions(DbContextOptionsBuilder options, Npgsql.NpgsqlDataSource dataSource, IServiceProvider sp)
+    {
+        options.UseNpgsql(dataSource, npgsqlOptions =>
+        {
+            npgsqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+            npgsqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorCodesToAdd: null);
+        });
+        ((IDbContextOptionsBuilderInfrastructure)options).AddOrUpdateExtension(new SnakeCaseNamingOptionsExtension());
+        options.AddInterceptors(sp.GetRequiredService<ICOT.Core.Postgres.Interceptors.PlatformSaveChangesInterceptor>());
+        options.ConfigureWarnings(w =>
+        {
+            w.Ignore(
+                Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning,
+                Microsoft.EntityFrameworkCore.Diagnostics.CoreEventId.RowLimitingOperationWithoutOrderByWarning);
+            w.Log((Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.ConnectionError, Microsoft.Extensions.Logging.LogLevel.Warning));
+        });
+    }
+
+    private static void LoadNearestEnvFile()
+    {
+        var rootDir = Directory.GetCurrentDirectory();
+        while (!File.Exists(Path.Combine(rootDir, ".env")) && Directory.GetParent(rootDir) != null)
+        {
+            rootDir = Directory.GetParent(rootDir)!.FullName;
+        }
+
+        var envPath = Path.Combine(rootDir, ".env");
+        if (File.Exists(envPath))
+        {
+            Env.Load(envPath);
+            Env.TraversePath().Load();
+        }
+    }
+
+    private static string NormalizeContainerHost(string host, bool inContainer)
+    {
+        if (inContainer && (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host == "127.0.0.1"))
+        {
+            return "host.docker.internal";
+        }
+        return host;
+    }
+
+    private static string ResolveDatabaseName(string defaultDbName, string? envDbKey)
+    {
+        if (string.IsNullOrEmpty(envDbKey))
+        {
+            return defaultDbName;
+        }
+
+        var cleanKey = envDbKey.Replace("POSTGRES_", "");
+        var candidateKeys = new[]
+        {
+            envDbKey,
+            cleanKey,
+            $"POSTGRES_{cleanKey}",
+            envDbKey.Replace("_SERVICE_", "SERVICE_"),
+            cleanKey.Replace("_SERVICE_", "SERVICE_")
+        };
+
+        foreach (var k in candidateKeys)
+        {
+            var val = GetTrimmedEnv(k);
+            if (!string.IsNullOrEmpty(val))
+            {
+                return val;
+            }
+        }
+
+        return defaultDbName;
+    }
+
+    private static string? GetTrimmedEnv(string key)
+    {
+        var raw = Environment.GetEnvironmentVariable(key) ?? Env.GetString(key);
+        return string.IsNullOrWhiteSpace(raw) ? null : raw.Trim();
+    }
+
+    private static int? GetNullableIntEnv(string key, int minValue, int maxValue)
+    {
+        var raw = GetTrimmedEnv(key)?.Trim('"', '\'');
+        if (string.IsNullOrEmpty(raw))
+        {
+            return null;
+        }
+
+        return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? Math.Clamp(parsed, minValue, maxValue)
+            : null;
+    }
+
+    private static bool? GetNullableBoolEnv(string key)
+    {
+        var raw = GetTrimmedEnv(key)?.Trim('"', '\'');
+        if (string.IsNullOrEmpty(raw))
+        {
+            return null;
+        }
+
+        if (bool.TryParse(raw, out var parsed))
+        {
+            return parsed;
+        }
+
+        return raw switch
+        {
+            "1" => true,
+            "0" => false,
+            _ when raw.Equals("yes", StringComparison.OrdinalIgnoreCase) => true,
+            _ when raw.Equals("no", StringComparison.OrdinalIgnoreCase) => false,
+            _ => null
+        };
+    }
+
+    private sealed record PlatformMigrationConnectionSettings<TContext>(
+        string Host,
+        int Port,
+        string Database,
+        string Username,
+        string Password) where TContext : DbContext;
 }
 
 internal sealed class SnakeCaseNamingOptionsExtension : IDbContextOptionsExtension
